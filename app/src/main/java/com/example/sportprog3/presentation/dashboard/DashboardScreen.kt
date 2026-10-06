@@ -65,11 +65,11 @@ fun DashboardScreen(onNavigate: (Int) -> Unit) {
 
         SectionTitle("Accesos rápidos")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            QuickAction("Plantel", "05", Modifier.weight(1f)) { onNavigate(5) }
-            QuickAction("Entreno", "08", Modifier.weight(1f)) { onNavigate(8) }
+            QuickAction("Equipos", "04", Modifier.weight(1f)) { onNavigate(4) }
+            QuickAction("Entrenamiento", "08", Modifier.weight(1f)) { onNavigate(8) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            QuickAction("Partido", "12", Modifier.weight(1f)) { onNavigate(12) }
+            QuickAction("Convocatoria", "10", Modifier.weight(1f)) { onNavigate(10) }
             QuickAction("Comunidad", "17", Modifier.weight(1f)) { onNavigate(17) }
         }
 
