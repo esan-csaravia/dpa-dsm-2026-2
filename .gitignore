@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+**/build/
+.kotlin/
+
+# Local Android SDK configuration
+local.properties
+
+# Android build outputs and native build intermediates
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+*.hprof
+.externalNativeBuild/
+.cxx/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Generated logs and temporary files
+*.log
+*.tmp
+
+
+script_base.md
+SportPro_User_Story.md
