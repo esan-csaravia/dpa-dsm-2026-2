@@ -52,9 +52,7 @@ fun AuthScreens(screen: Int, onNavigate: (Int) -> Unit) {
                     }
                     Badge("ACCESO SEGURO POR ROL")
                 } else {
-                    MockField("Nombres y apellidos", "Carlos Medina")
-                    MockField("Correo electrónico", "carlos.medina@email.com")
-                    MockField("Contraseña", "Mínimo 8 caracteres")
+
                     Text("¿Cómo participarás?", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Badge("Entrenador")
@@ -64,6 +62,11 @@ fun AuthScreens(screen: Int, onNavigate: (Int) -> Unit) {
                         Badge("Padre de familia")
                         Badge("Administrador")
                     }
+
+                    MockField("Nombres y apellidos", "Carlos Medina")
+                    MockField("Correo electrónico", "carlos.medina@email.com")
+                    MockField("Contraseña", "Mínimo 8 caracteres")
+
                     Notice("Los menores de 14 años deben registrarse desde la cuenta de su padre o apoderado.", warning = true)
                     PrimaryAction("Crear mi cuenta")
                     SecondaryAction("Ya tengo cuenta · Iniciar sesión", onClick = { onNavigate(1) })
