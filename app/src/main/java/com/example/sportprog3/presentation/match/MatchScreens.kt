@@ -9,14 +9,29 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.sportprog3.data.model.MatchEventModel
+import com.example.sportprog3.data.model.MatchLiveModel
+import com.example.sportprog3.data.remote.FirebaseMatchManager
 import com.example.sportprog3.presentation.components.Badge
 import com.example.sportprog3.presentation.components.Body
 import com.example.sportprog3.presentation.components.Eyebrow
@@ -39,16 +54,18 @@ import com.example.sportprog3.ui.theme.Mint
 import com.example.sportprog3.ui.theme.Muted
 import com.example.sportprog3.ui.theme.Pitch
 import com.example.sportprog3.ui.theme.Rose
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
-fun MatchScreens(screen: Int) {
+fun MatchScreens(screen: Int, onNavigate: (Int) -> Unit = {}) {
     ScreenFrame {
         when (screen) {
             10 -> CallupView()
             11 -> LineupView()
-            12 -> LiveOperatorView()
+            12 -> LiveOperatorView(onNavigate)
             13 -> EventFormView()
-            14 -> TimelineView()
+            14 -> LiveEventsView()
             15 -> StatsView()
             16 -> MatchStoryView()
             21 -> EventCatalogView()
@@ -130,37 +147,227 @@ private fun FieldPlayer(number: String, name: String) {
 }
 
 @Composable
-private fun LiveOperatorView() {
+private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
+    val matchId = FirebaseMatchManager.DEMO_MATCH_ID
+    val scope = rememberCoroutineScope()
+    var live by remember { mutableStateOf<MatchLiveModel?>(null) }
+    var events by remember { mutableStateOf(emptyList<MatchEventModel>()) }
+    var selectedTeamId by remember { mutableStateOf("los-cedros") }
+    var minuteInput by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("Conectando con Firebase Realtime Database…") }
+    var saving by remember { mutableStateOf(false) }
+    var now by remember { mutableLongStateOf(0L) }
+
+    DisposableEffect(matchId) {
+        val stopObserving = FirebaseMatchManager.observeMatch(
+            matchId = matchId,
+            onLiveChanged = { live = it },
+            onEventsChanged = {
+                events = it
+                message = ""
+            },
+            onError = { message = "Error de Firebase: $it" }
+        )
+        onDispose { stopObserving() }
+    }
+
+    val homeTeamId = live?.equipoLocalId ?: "los-cedros"
+    val awayTeamId = live?.equipoVisitanteId ?: "deportivo-surco"
+    val homeTeamName = live?.equipoLocalNombre ?: "Los Cedros"
+    val awayTeamName = live?.equipoVisitanteNombre ?: "Deportivo Surco"
+    val goals = events.filter { it.tipo == "Gol" && !it.anulado }
+    val homeScore = goals.count { it.equipoId == homeTeamId }
+    val awayScore = goals.count { it.equipoId == awayTeamId }
+    val isLive = live?.estado == "EN_VIVO"
+    val phase = live?.fase ?: "SIN_INICIAR"
+    val clockRunning = isLive && (phase == "PRIMER_TIEMPO" || phase == "SEGUNDO_TIEMPO")
+
+    LaunchedEffect(clockRunning, live?.relojInicioEn) {
+        while (clockRunning) {
+            now = FirebaseMatchManager.serverNow()
+            delay(250)
+        }
+    }
+    fun elapsedMs(at: Long): Long {
+        val current = live ?: return 0L
+        return current.relojBaseMs + if (clockRunning) (at - current.relojInicioEn).coerceAtLeast(0L) else 0L
+    }
+    val elapsed = elapsedMs(now)
+    val clockMinute = (elapsed / 60_000).toInt()
+    val clockText = "%02d:%02d".format(clockMinute, (elapsed / 1000 % 60).toInt())
+
+    val typedMinute = minuteInput.toIntOrNull()
+    val minuteValid = minuteInput.isBlank() || (typedMinute != null && typedMinute in 0..130)
+    val effectiveMinute = if (minuteInput.isBlank()) clockMinute else typedMinute ?: clockMinute
+    val canRegister = clockRunning && minuteValid
+    val canStartHalf = isLive && !saving && (phase == "SIN_INICIAR" || phase == "ENTRETIEMPO")
+
+    fun changePhase(newPhase: String, period: Int, baseMs: Long, type: String, doneMessage: String, finish: Boolean = false) {
+        saving = true
+        message = "Sincronizando…"
+        scope.launch {
+            val result = FirebaseMatchManager.cambiarFase(matchId, newPhase, period, baseMs, type, finish)
+            saving = false
+            message = if (result.isSuccess) doneMessage
+            else "Error de Firebase: ${result.exceptionOrNull()?.message}"
+        }
+    }
+
     MockCard(containerColor = ForestDeep) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Eyebrow("PARTIDO EN CURSO", Lime)
-            Badge("● EN VIVO", color = Lime)
+            Eyebrow(
+                when {
+                    !isLive -> "ESTADO DEL PARTIDO"
+                    phase == "SIN_INICIAR" -> "PARTIDO POR INICIAR"
+                    phase == "ENTRETIEMPO" -> "ENTRETIEMPO"
+                    else -> "PARTIDO EN CURSO"
+                },
+                Lime
+            )
+            Badge(if (isLive) "● EN VIVO" else live?.estado?.replace("_", " ") ?: "CARGANDO", color = Lime)
         }
         Text(
-            "Los Cedros     2  —  1     Dep. Surco",
+            "$homeTeamName  $homeScore — $awayScore  $awayTeamName",
             color = Color.White,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Black
         )
-        Text("63′", color = Lime, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
-        Body("Segundo tiempo · Operador: Carlos M.", Color.White.copy(alpha = .8f))
+        Text(clockText, color = Lime, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
+        Body(
+            when {
+                !isLive -> "Partido finalizado"
+                phase == "SIN_INICIAR" -> "Pulsa «Iniciar partido» para arrancar el reloj"
+                phase == "PRIMER_TIEMPO" -> "1.er tiempo · reloj en marcha"
+                phase == "ENTRETIEMPO" -> "Reloj detenido · listo para el 2.º tiempo"
+                else -> "2.º tiempo · reloj en marcha"
+            },
+            Color.White.copy(alpha = .8f)
+        )
     }
-    SectionTitle("Registrar evento rápido", "Catálogo 21")
-    val actions = listOf("Gol", "Tarjeta", "Falta", "Penal", "Cambio", "Tiro de esquina", "Fuera de juego", "Saque lateral", "Saque de meta", "Inicio / fin")
-    actions.chunked(2).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            row.forEach { action -> Badge(action, color = Color.White) }
+    SectionTitle("Registrar evento rápido", "Firebase RTDB")
+    MockCard {
+        OutlinedTextField(
+            value = minuteInput,
+            onValueChange = { input -> minuteInput = input.filter(Char::isDigit).take(3) },
+            label = { Text("Minuto del partido") },
+            supportingText = {
+                Text(
+                    if (minuteInput.isBlank()) "Vacío: se usa el minuto del reloj (${clockMinute}′)"
+                    else if (minuteValid) "Se usará el minuto ${effectiveMinute}′"
+                    else "Ingresa un minuto entre 0 y 130"
+                )
+            },
+            isError = !minuteValid,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { selectedTeamId = homeTeamId },
+                enabled = selectedTeamId != homeTeamId,
+                modifier = Modifier.weight(1f)
+            ) { Text(homeTeamName) }
+            Button(
+                onClick = { selectedTeamId = awayTeamId },
+                enabled = selectedTeamId != awayTeamId,
+                modifier = Modifier.weight(1f)
+            ) { Text(awayTeamName) }
         }
     }
-    SectionTitle("Últimos eventos")
-    MockCard {
-        EventLine("63′", "Gol · Diego Torres", "Los Cedros · Asistencia A. Flores")
-        SoftDivider()
-        EventLine("58′", "Tarjeta amarilla", "S. Vargas · Los Cedros")
-        SoftDivider()
-        EventLine("54′", "Cambio", "Entra A. Flores · Sale K. Ramos")
+    PrimaryAction(
+        text = when (phase) {
+            "ENTRETIEMPO" -> "Iniciar 2PT"
+            "SEGUNDO_TIEMPO" -> "2PT en juego"
+            "PRIMER_TIEMPO" -> "Partido iniciado"
+            else -> "Iniciar partido"
+        },
+        enabled = canStartHalf,
+        onClick = {
+            if (phase == "ENTRETIEMPO") {
+                changePhase(
+                    "SEGUNDO_TIEMPO", 2, FirebaseMatchManager.MINUTOS_POR_TIEMPO * 60_000L,
+                    "Inicio 2PT", "Segundo tiempo iniciado."
+                )
+            } else {
+                changePhase("PRIMER_TIEMPO", 1, 0L, "Inicio", "Partido iniciado.")
+            }
+        }
+    )
+    PrimaryAction(
+        text = "Finalizar 1PT",
+        enabled = isLive && !saving && phase == "PRIMER_TIEMPO",
+        onClick = {
+            changePhase(
+                "ENTRETIEMPO", 1, elapsedMs(FirebaseMatchManager.serverNow()),
+                "Fin 1PT", "Primer tiempo finalizado."
+            )
+        }
+    )
+    val actions = listOf(
+        "Gol", "Tarjeta", "Falta", "Penal", "Cambio",
+        "Tiro de esquina", "Fuera de juego", "Saque lateral", "Saque de meta"
+    )
+    actions.chunked(2).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            row.forEach { label ->
+                Button(
+                    onClick = {
+                        val minute = if (minuteInput.isBlank()) {
+                            (elapsedMs(FirebaseMatchManager.serverNow()) / 60_000).toInt()
+                        } else effectiveMinute
+                        message = "$label agregado; sincronizando…"
+                        scope.launch {
+                            val result = FirebaseMatchManager.registerEvent(
+                                matchId = matchId,
+                                tipo = label,
+                                minuto = minute,
+                                periodo = live?.periodo ?: 1,
+                                equipoId = selectedTeamId
+                            )
+                            message = if (result.isSuccess) "$label registrado en el minuto $minute′."
+                            else "Error de Firebase: ${result.exceptionOrNull()?.message}"
+                        }
+                    },
+                    enabled = canRegister,
+                    modifier = Modifier.weight(1f)
+                ) { Text(label) }
+            }
+        }
     }
-    PrimaryAction("Finalizar partido")
+    message.takeIf(String::isNotBlank)?.let { Body(it, if (it.startsWith("Error")) Rose else Muted) }
+    SectionTitle("Cronología en vivo")
+    MockCard {
+        val activeEvents = events.filterNot { it.anulado }.asReversed().take(8)
+        if (activeEvents.isEmpty()) {
+            Body("Los eventos nuevos aparecerán aquí para todos los dispositivos conectados.")
+        } else {
+            activeEvents.forEachIndexed { index, event ->
+                val teamName = when (event.equipoId) {
+                    homeTeamId -> homeTeamName
+                    awayTeamId -> awayTeamName
+                    else -> "Partido"
+                }
+                EventLine(
+                    "${event.minuto}′",
+                    event.tipo,
+                    "$teamName · ${event.jugadorNombre.ifBlank { "Sin jugador" }}"
+                )
+                if (index < activeEvents.lastIndex) SoftDivider()
+            }
+        }
+    }
+    SecondaryAction("Ver y editar todos los eventos  →", onClick = { onNavigate(14) })
+    PrimaryAction(
+        text = if (isLive) "Finalizar partido" else "Partido finalizado",
+        enabled = isLive && !saving && phase == "SEGUNDO_TIEMPO",
+        onClick = {
+            changePhase(
+                "FINALIZADO", live?.periodo ?: 2, elapsedMs(FirebaseMatchManager.serverNow()),
+                "Fin del partido", "Partido finalizado.", finish = true
+            )
+        }
+    )
 }
 
 @Composable
@@ -181,28 +388,6 @@ private fun EventFormView() {
         Notice("Si no conoces al jugador, guarda como «Sin jugador» y complétalo después.")
         PrimaryAction("Guardar evento en cronología")
     }
-}
-
-@Composable
-private fun TimelineView() {
-    Eyebrow("FECHA 5 · CERRADO")
-    SectionTitle("Cronología del partido", "Trazabilidad")
-    Notice("Sin conexión · 2 eventos en cola para sincronizar.", warning = true)
-    MockCard {
-        listOf(
-            Triple("90′", "Fin del partido", "Registró Carlos M. · Sincronizado"),
-            Triple("76′", "Gol · Deportivo Surco", "Registró Luis A. · Editado por Carlos M."),
-            Triple("63′", "Gol · Diego Torres", "Registró Carlos M. · Sincronizado"),
-            Triple("58′", "Tarjeta amarilla · S. Vargas", "Registró Carlos M. · En cola"),
-            Triple("54′", "Cambio · A. Flores por K. Ramos", "Registró Carlos M. · En cola"),
-            Triple("45′", "Inicio del segundo tiempo", "Registró Luis A. · Sincronizado")
-        ).forEach { (time, event, detail) ->
-            EventLine(time, event, detail)
-            SecondaryAction("Editar · Anular")
-            SoftDivider()
-        }
-    }
-    Body("Las anulaciones se conservan en el historial y se excluyen del marcador.")
 }
 
 @Composable
