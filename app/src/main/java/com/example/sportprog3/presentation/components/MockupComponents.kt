@@ -117,10 +117,16 @@ fun Badge(text: String, color: Color = Mint, textColor: Color = Forest) {
 }
 
 @Composable
-fun PrimaryAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+fun PrimaryAction(
+    text: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit = {}
+) {
     Button(
         onClick = onClick,
         modifier = modifier.fillMaxWidth().height(52.dp),
+        enabled = enabled,
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Forest)
     ) {
