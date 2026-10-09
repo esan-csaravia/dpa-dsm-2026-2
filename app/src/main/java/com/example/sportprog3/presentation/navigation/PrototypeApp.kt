@@ -43,7 +43,11 @@ import com.example.sportprog3.presentation.training.TrainingScreens
 import com.example.sportprog3.ui.theme.Forest
 import com.example.sportprog3.ui.theme.Paper
 
-data class PrototypeRoute(val id: Int, val title: String, val group: String)
+data class PrototypeRoute(
+    val id: Int,
+    val title: String,
+    val group: String
+)
 
 private val prototypeRoutes = listOf(
     PrototypeRoute(1, "Iniciar sesión", "Cuenta"),
@@ -72,7 +76,9 @@ private val prototypeRoutes = listOf(
 @Composable
 fun PrototypeApp() {
     var selectedId by remember { mutableIntStateOf(1) }
+    var rolUsuario by remember { mutableStateOf<String?>(null) }
     var showViews by remember { mutableStateOf(false) }
+
     val route = prototypeRoutes.first { it.id == selectedId }
     val isAuth = selectedId in 1..2
 
@@ -86,7 +92,10 @@ fun PrototypeApp() {
                     .fillMaxWidth()
                     .background(Forest)
                     .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(
+                        horizontal = 20.dp,
+                        vertical = 12.dp
+                    )
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -95,28 +104,35 @@ fun PrototypeApp() {
                 ) {
                     Column {
                         Text(
-                            "SPORTPRO G3",
+                            text = "SPORTPRO G3",
                             color = MaterialTheme.colorScheme.tertiary,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Black
                         )
+
                         Text(
-                            route.title,
+                            text = route.title,
                             color = Color.White,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                     }
+
                     Surface(
                         color = Color.White.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.clickable { showViews = true }
+                        modifier = Modifier.clickable {
+                            showViews = true
+                        }
                     ) {
                         Text(
-                            "US-${route.id.toString().padStart(3, '0')}  ▾",
+                            text = "US-${route.id.toString().padStart(3, '0')}  ▾",
                             color = Color.White,
                             style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                            modifier = Modifier.padding(
+                                horizontal = 12.dp,
+                                vertical = 9.dp
+                            )
                         )
                     }
                 }
@@ -124,12 +140,20 @@ fun PrototypeApp() {
         },
         bottomBar = {
             if (!isAuth) {
-                Surface(shadowElevation = 8.dp, color = Color.White) {
+                Surface(
+                    shadowElevation = 8.dp,
+                    color = Color.White
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                            .windowInsetsPadding(
+                                WindowInsets.navigationBars
+                            )
+                            .padding(
+                                horizontal = 8.dp,
+                                vertical = 8.dp
+                            ),
                         horizontalArrangement = Arrangement.SpaceAround
                     ) {
                         listOf(
@@ -142,15 +166,23 @@ fun PrototypeApp() {
                             val active = when (target) {
                                 3 -> selectedId == 3
                                 5 -> selectedId in 4..7
-                                12 -> selectedId in 10..16 || selectedId == 21
+                                12 -> selectedId in 10..16 ||
+                                        selectedId == 21
                                 17 -> selectedId in 17..20
                                 else -> selectedId == 6
                             }
+
                             Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                                horizontalAlignment =
+                                    Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .clickable { selectedId = target }
-                                    .padding(horizontal = 3.dp, vertical = 2.dp)
+                                    .clickable {
+                                        selectedId = target
+                                    }
+                                    .padding(
+                                        horizontal = 3.dp,
+                                        vertical = 2.dp
+                                    )
                             ) {
                                 Text(
                                     text = when (label) {
@@ -160,14 +192,31 @@ fun PrototypeApp() {
                                         "Comunidad" -> "▤"
                                         else -> "○"
                                     },
-                                    color = if (active) Forest else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.titleMedium
+                                    color = if (active) {
+                                        Forest
+                                    } else {
+                                        MaterialTheme.colorScheme
+                                            .onSurfaceVariant
+                                    },
+                                    style = MaterialTheme.typography
+                                        .titleMedium
                                 )
+
                                 Text(
-                                    label,
-                                    color = if (active) Forest else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                                    text = label,
+                                    color = if (active) {
+                                        Forest
+                                    } else {
+                                        MaterialTheme.colorScheme
+                                            .onSurfaceVariant
+                                    },
+                                    style = MaterialTheme.typography
+                                        .labelSmall,
+                                    fontWeight = if (active) {
+                                        FontWeight.Bold
+                                    } else {
+                                        FontWeight.Normal
+                                    }
                                 )
                             }
                         }
@@ -176,14 +225,42 @@ fun PrototypeApp() {
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
             when (selectedId) {
-                1, 2 -> AuthScreens(selectedId, onNavigate = { selectedId = it })
-                3 -> DashboardScreen(onNavigate = { selectedId = it })
+                1, 2 -> AuthScreens(
+                    screen = selectedId,
+                    onNavigate = {
+                        selectedId = it
+                    },
+                    onLoginSuccess = { rol ->
+                        rolUsuario = rol
+                        selectedId = 3
+                    }
+                )
+
+                3 -> DashboardScreen(
+                    onNavigate = {
+                        selectedId = it
+                    }
+                )
+
                 4, 5, 6, 7 -> TeamScreens(selectedId)
+
                 8, 9 -> TrainingScreens(selectedId)
-                10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(selectedId, onNavigate = { selectedId = it })
+
+                10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(
+                    selectedId,
+                    onNavigate = {
+                        selectedId = it
+                    }
+                )
+
                 17, 18, 19 -> CommunityScreens(selectedId)
+
                 20 -> InboxScreen()
             }
         }
@@ -191,8 +268,12 @@ fun PrototypeApp() {
 
     if (showViews) {
         AlertDialog(
-            onDismissRequest = { showViews = false },
-            title = { Text("Explorar las 21 vistas") },
+            onDismissRequest = {
+                showViews = false
+            },
+            title = {
+                Text("Explorar las 21 vistas")
+            },
             text = {
                 LazyColumn {
                     items(prototypeRoutes) { item ->
@@ -204,24 +285,43 @@ fun PrototypeApp() {
                                     showViews = false
                                 }
                                 .padding(vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment =
+                                Alignment.CenterVertically
                         ) {
                             Text(
-                                "US-${item.id.toString().padStart(3, '0')}",
+                                text = "US-${item.id.toString().padStart(3, '0')}",
                                 color = Forest,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(end = 12.dp)
+                                modifier = Modifier.padding(
+                                    end = 12.dp
+                                )
                             )
+
                             Column {
-                                Text(item.title, style = MaterialTheme.typography.bodyMedium)
-                                Text(item.group, style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    text = item.title,
+                                    style = MaterialTheme.typography
+                                        .bodyMedium
+                                )
+
+                                Text(
+                                    text = item.group,
+                                    style = MaterialTheme.typography
+                                        .labelSmall
+                                )
                             }
                         }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showViews = false }) { Text("Cerrar") }
+                TextButton(
+                    onClick = {
+                        showViews = false
+                    }
+                ) {
+                    Text("Cerrar")
+                }
             }
         )
     }
