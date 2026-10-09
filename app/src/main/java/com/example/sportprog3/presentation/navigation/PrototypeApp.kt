@@ -59,7 +59,7 @@ private val prototypeRoutes = listOf(
     PrototypeRoute(11, "Alineación 4-3-3", "Partido"),
     PrototypeRoute(12, "Operador · partido en vivo", "Partido"),
     PrototypeRoute(13, "Registrar evento", "Partido"),
-    PrototypeRoute(14, "Cronología y cambios", "Partido"),
+    PrototypeRoute(14, "Eventos registrados", "Partido"),
     PrototypeRoute(15, "Estadísticas", "Partido"),
     PrototypeRoute(16, "Crónica con IA", "Partido"),
     PrototypeRoute(17, "Comunidad", "Comunidad"),
@@ -182,7 +182,7 @@ fun PrototypeApp() {
                 3 -> DashboardScreen(onNavigate = { selectedId = it })
                 4, 5, 6, 7 -> TeamScreens(selectedId)
                 8, 9 -> TrainingScreens(selectedId)
-                10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(selectedId)
+                10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(selectedId, onNavigate = { selectedId = it })
                 17, 18, 19 -> CommunityScreens(selectedId)
                 20 -> InboxScreen()
             }
