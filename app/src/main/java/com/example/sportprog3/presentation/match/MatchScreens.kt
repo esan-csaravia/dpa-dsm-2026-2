@@ -1,6 +1,7 @@
 package com.example.sportprog3.presentation.match
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -28,9 +30,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.sportprog3.data.model.MatchEventModel
 import com.example.sportprog3.data.model.MatchLiveModel
+import com.example.sportprog3.data.model.PlayerModel
 import com.example.sportprog3.data.remote.FirebaseMatchManager
 import com.example.sportprog3.presentation.components.Badge
 import com.example.sportprog3.presentation.components.Body
@@ -372,21 +376,203 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
 
 @Composable
 private fun EventFormView() {
-    Eyebrow("LOS CEDROS 2 — 1 DEPORTIVO SURCO")
+    val matchId = FirebaseMatchManager.DEMO_MATCH_ID
+    val scope = rememberCoroutineScope()
+    var live by remember { mutableStateOf<MatchLiveModel?>(null) }
+    var players by remember { mutableStateOf(emptyList<PlayerModel>()) }
+    var selectedTeamId by remember { mutableStateOf("los-cedros") }
+    var selectedPlayerId by remember { mutableStateOf("") }
+    var selectedType by remember { mutableStateOf("Gol") }
+    var minuteInput by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("Conectando con Firebase Realtime Database…") }
+    var saving by remember { mutableStateOf(false) }
+    var now by remember { mutableLongStateOf(0L) }
+
+    DisposableEffect(matchId) {
+        val stopMatch = FirebaseMatchManager.observeMatch(
+            matchId = matchId,
+            onLiveChanged = { live = it },
+            onEventsChanged = {},
+            onError = { message = "Error de Firebase: $it" }
+        )
+        val stopPlayers = FirebaseMatchManager.observePlayers(
+            matchId = matchId,
+            onPlayersChanged = { players = it },
+            onError = { message = "Error de Firebase: $it" }
+        )
+        onDispose {
+            stopMatch()
+            stopPlayers()
+        }
+    }
+
+    val homeTeamId = live?.equipoLocalId ?: "los-cedros"
+    val awayTeamId = live?.equipoVisitanteId ?: "deportivo-surco"
+    val homeTeamName = live?.equipoLocalNombre ?: "Los Cedros"
+    val awayTeamName = live?.equipoVisitanteNombre ?: "Deportivo Surco"
+    val isLive = live?.estado == "EN_VIVO"
+    val phase = live?.fase ?: "SIN_INICIAR"
+    val clockRunning = isLive && (phase == "PRIMER_TIEMPO" || phase == "SEGUNDO_TIEMPO")
+    val selectedPlayer = players.firstOrNull {
+        it.jugadorId == selectedPlayerId && it.equipoId == selectedTeamId
+    }
+    val teamPlayers = players.filter { it.equipoId == selectedTeamId }
+
+    LaunchedEffect(clockRunning, live?.relojInicioEn) {
+        while (clockRunning) {
+            now = FirebaseMatchManager.serverNow()
+            delay(250)
+        }
+    }
+
+    val elapsed = (live?.relojBaseMs ?: 0L) +
+        if (clockRunning) (now - (live?.relojInicioEn ?: 0L)).coerceAtLeast(0L) else 0L
+    val clockMinute = (elapsed / 60_000).toInt()
+    val clockText = "%02d:%02d".format(clockMinute, (elapsed / 1000 % 60).toInt())
+    val typedMinute = minuteInput.toIntOrNull()
+    val minuteValid = minuteInput.isBlank() || (typedMinute != null && typedMinute in 0..130)
+    val effectiveMinute = if (minuteInput.isBlank()) clockMinute else typedMinute ?: clockMinute
+    val canSave = clockRunning && minuteValid && !saving
+    val eventTypes = listOf(
+        "Gol", "Tarjeta", "Falta", "Penal", "Cambio",
+        "Tiro de esquina", "Fuera de juego", "Saque lateral", "Saque de meta"
+    )
+
+    MockCard(containerColor = ForestDeep) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Eyebrow(
+                when {
+                    !isLive -> "ESTADO DEL PARTIDO"
+                    phase == "ENTRETIEMPO" -> "ENTRETIEMPO"
+                    else -> "PARTIDO EN CURSO"
+                },
+                Lime
+            )
+            Badge(if (isLive) "● EN VIVO" else live?.estado?.replace("_", " ") ?: "CARGANDO", color = Lime)
+        }
+        Text(
+            "$homeTeamName — $awayTeamName",
+            color = Color.White,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Black
+        )
+        Text(clockText, color = Lime, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
+        Body(
+            if (clockRunning) "Reloj en marcha · ${live?.periodo ?: 1}.er tiempo"
+            else "Inicia el partido desde el operador en vivo para registrar eventos.",
+            Color.White.copy(alpha = .8f)
+        )
+    }
+
     SectionTitle("Nuevo evento", "PARTIDO EN VIVO")
     MockCard {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Badge("GOL · SELECCIONADO")
-            Badge("Tarjeta")
-            Badge("Cambio")
+        Text("Tipo de evento", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        eventTypes.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { type ->
+                    Button(
+                        onClick = { selectedType = type },
+                        enabled = selectedType != type,
+                        modifier = Modifier.weight(1f)
+                    ) { Text(type, textAlign = TextAlign.Center) }
+                }
+                if (row.size == 1) Box(modifier = Modifier.weight(1f))
+            }
         }
-        MockField("Minuto", "63")
-        MockField("Equipo", "Los Cedros")
-        MockField("Jugador", "Diego Torres · #4")
-        MockField("Asistencia (opcional)", "Andrés Flores · #8")
-        MockField("Observaciones", "Remate dentro del área")
-        Notice("Si no conoces al jugador, guarda como «Sin jugador» y complétalo después.")
-        PrimaryAction("Guardar evento en cronología")
+        OutlinedTextField(
+            value = minuteInput,
+            onValueChange = { minuteInput = it.filter(Char::isDigit).take(3) },
+            label = { Text("Minuto del partido") },
+            supportingText = {
+                Text(
+                    if (minuteInput.isBlank()) "Vacío: se usa el minuto del reloj (${clockMinute}′)"
+                    else if (minuteValid) "Se registrará en el minuto $effectiveMinute′"
+                    else "Ingresa un minuto entre 0 y 130"
+                )
+            },
+            isError = !minuteValid,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text("Equipo", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { selectedTeamId = homeTeamId; selectedPlayerId = "" },
+                enabled = selectedTeamId != homeTeamId,
+                modifier = Modifier.weight(1f)
+            ) { Text(homeTeamName) }
+            Button(
+                onClick = { selectedTeamId = awayTeamId; selectedPlayerId = "" },
+                enabled = selectedTeamId != awayTeamId,
+                modifier = Modifier.weight(1f)
+            ) { Text(awayTeamName) }
+        }
+        Text("Jugador (opcional)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        MatchPlayerOption("Sin jugador", selected = selectedPlayerId.isBlank()) {
+            selectedPlayerId = ""
+        }
+        teamPlayers.forEach { player ->
+            MatchPlayerOption(
+                label = "#${player.numero} · ${player.nombre}",
+                selected = player.jugadorId == selectedPlayerId
+            ) { selectedPlayerId = player.jugadorId }
+        }
+        if (teamPlayers.isEmpty()) {
+            Body("No hay jugadores registrados para este equipo.")
+        }
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it.take(140) },
+            label = { Text("Observaciones (opcional)") },
+            singleLine = false,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Notice("Si no conoces al jugador, puedes guardar el evento como «Sin jugador».")
+        PrimaryAction(
+            text = if (saving) "Guardando…" else "Guardar evento en cronología",
+            enabled = canSave,
+            onClick = {
+                saving = true
+                message = "Guardando evento…"
+                scope.launch {
+                    val result = FirebaseMatchManager.registerEvent(
+                        matchId = matchId,
+                        tipo = selectedType,
+                        minuto = effectiveMinute,
+                        periodo = live?.periodo ?: 1,
+                        equipoId = selectedTeamId,
+                        jugadorId = selectedPlayer?.jugadorId.orEmpty(),
+                        jugadorNombre = selectedPlayer?.let { "#${it.numero} ${it.nombre}" }.orEmpty(),
+                        observaciones = notes.trim()
+                    )
+                    saving = false
+                    message = if (result.isSuccess) {
+                        minuteInput = ""
+                        selectedPlayerId = ""
+                        notes = ""
+                        "$selectedType registrado en el minuto $effectiveMinute′."
+                    } else {
+                        "Error de Firebase: ${result.exceptionOrNull()?.message}"
+                    }
+                }
+            }
+        )
+    }
+    message.takeIf(String::isNotBlank)?.let {
+        Body(it, if (it.startsWith("Error")) Rose else Muted)
+    }
+}
+
+@Composable
+private fun MatchPlayerOption(label: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = onSelect)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

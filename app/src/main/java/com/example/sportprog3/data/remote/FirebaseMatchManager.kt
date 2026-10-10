@@ -28,14 +28,22 @@ object FirebaseMatchManager {
 
     fun enableOfflinePersistence() = database.setPersistenceEnabled(true)
 
-    private fun eventoMap(tipo: String, minuto: Int, periodo: Int, equipoId: String) = mapOf(
+    private fun eventoMap(
+        tipo: String,
+        minuto: Int,
+        periodo: Int,
+        equipoId: String,
+        jugadorId: String = "",
+        jugadorNombre: String = "",
+        observaciones: String = ""
+    ) = mapOf(
         "tipo" to tipo,
         "minuto" to minuto,
         "periodo" to periodo,
         "equipoId" to equipoId,
-        "jugadorId" to "",
-        "jugadorNombre" to "",
-        "observaciones" to "",
+        "jugadorId" to jugadorId,
+        "jugadorNombre" to jugadorNombre,
+        "observaciones" to observaciones,
         "creadoPor" to "operador-demo",
         "creadoEn" to ServerValue.TIMESTAMP,
         "anulado" to false
@@ -46,9 +54,14 @@ object FirebaseMatchManager {
         tipo: String,
         minuto: Int,
         periodo: Int,
-        equipoId: String
+        equipoId: String,
+        jugadorId: String = "",
+        jugadorNombre: String = "",
+        observaciones: String = ""
     ): Result<Unit> = try {
-        matchRef(matchId).child("eventos").push().setValue(eventoMap(tipo, minuto, periodo, equipoId)).await()
+        matchRef(matchId).child("eventos").push().setValue(
+            eventoMap(tipo, minuto, periodo, equipoId, jugadorId, jugadorNombre, observaciones)
+        ).await()
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
