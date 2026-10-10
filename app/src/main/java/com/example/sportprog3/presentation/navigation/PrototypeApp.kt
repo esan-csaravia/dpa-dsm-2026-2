@@ -79,13 +79,10 @@ private val prototypeRoutes = listOf(
 
 @Composable
 fun PrototypeApp() {
-    var selectedId by remember { mutableIntStateOf(2) }
+    var selectedId by remember { mutableIntStateOf(1) }
     var showViews by remember { mutableStateOf(false) }
     var userRole by remember { mutableStateOf<String?>(null) }
     var userName by remember { mutableStateOf<String?>(null) }
-    var selectedId by remember { mutableIntStateOf(1) }
-    var rolUsuario by remember { mutableStateOf<String?>(null) }
-    var showViews by remember { mutableStateOf(false) }
 
     val route = prototypeRoutes.first { it.id == selectedId }
     val isAuth = selectedId in 1..2
@@ -248,6 +245,7 @@ fun PrototypeApp() {
                         selectedId = 3
                     }
                 )
+
                 3 -> when (userRole) {
                     "Jugador" -> PlayerHomeScreen(
                         userName = userName ?: "Jugador",
@@ -278,20 +276,6 @@ fun PrototypeApp() {
                     )
                     else -> DashboardScreen(onNavigate = { selectedId = it })
                 }
-                    onNavigate = {
-                        selectedId = it
-                    },
-                    onLoginSuccess = { rol ->
-                        rolUsuario = rol
-                        selectedId = 3
-                    }
-                )
-
-                3 -> DashboardScreen(
-                    onNavigate = {
-                        selectedId = it
-                    }
-                )
 
                 4, 5, 6, 7 -> TeamScreens(selectedId)
 
