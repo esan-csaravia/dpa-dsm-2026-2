@@ -33,9 +33,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.sportprog3.presentation.auth.AuthRepository
 import com.example.sportprog3.presentation.auth.AuthScreens
 import com.example.sportprog3.presentation.community.CommunityScreens
+import com.example.sportprog3.presentation.dashboard.AdminHomeScreen
 import com.example.sportprog3.presentation.dashboard.DashboardScreen
+import com.example.sportprog3.presentation.dashboard.ParentHomeScreen
+import com.example.sportprog3.presentation.dashboard.PlayerHomeScreen
 import com.example.sportprog3.presentation.inbox.InboxScreen
 import com.example.sportprog3.presentation.match.MatchScreens
 import com.example.sportprog3.presentation.teams.TeamScreens
@@ -71,8 +75,10 @@ private val prototypeRoutes = listOf(
 
 @Composable
 fun PrototypeApp() {
-    var selectedId by remember { mutableIntStateOf(3) }
+    var selectedId by remember { mutableIntStateOf(2) }
     var showViews by remember { mutableStateOf(false) }
+    var userRole by remember { mutableStateOf<String?>(null) }
+    var userName by remember { mutableStateOf<String?>(null) }
     val route = prototypeRoutes.first { it.id == selectedId }
     val isAuth = selectedId in 1..2
 
@@ -178,8 +184,45 @@ fun PrototypeApp() {
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             when (selectedId) {
-                1, 2 -> AuthScreens(selectedId, onNavigate = { selectedId = it })
-                3 -> DashboardScreen(onNavigate = { selectedId = it })
+                1, 2 -> AuthScreens(
+                    screen = selectedId,
+                    onNavigate = { selectedId = it },
+                    onLoginSuccess = { role, name ->
+                        userRole = role
+                        userName = name
+                        selectedId = 3
+                    }
+                )
+                3 -> when (userRole) {
+                    "Jugador" -> PlayerHomeScreen(
+                        userName = userName ?: "Jugador",
+                        onLogout = {
+                            userRole = null
+                            userName = null
+                            AuthRepository.logout()
+                            selectedId = 1
+                        }
+                    )
+                    "Padre de familia" -> ParentHomeScreen(
+                        userName = userName ?: "Padre de familia",
+                        onLogout = {
+                            userRole = null
+                            userName = null
+                            AuthRepository.logout()
+                            selectedId = 1
+                        }
+                    )
+                    "Administrador" -> AdminHomeScreen(
+                        userName = userName ?: "Administrador",
+                        onLogout = {
+                            userRole = null
+                            userName = null
+                            AuthRepository.logout()
+                            selectedId = 1
+                        }
+                    )
+                    else -> DashboardScreen(onNavigate = { selectedId = it })
+                }
                 4, 5, 6, 7 -> TeamScreens(selectedId)
                 8, 9 -> TrainingScreens(selectedId)
                 10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(selectedId)
