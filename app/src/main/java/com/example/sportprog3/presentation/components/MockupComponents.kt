@@ -125,6 +125,7 @@ fun PrimaryAction(
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier.fillMaxWidth().height(52.dp),
         enabled = enabled,
         shape = RoundedCornerShape(16.dp),
