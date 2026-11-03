@@ -42,6 +42,9 @@ import com.example.sportprog3.presentation.dashboard.ParentHomeScreen
 import com.example.sportprog3.presentation.dashboard.PlayerHomeScreen
 import com.example.sportprog3.presentation.inbox.InboxScreen
 import com.example.sportprog3.presentation.match.MatchScreens
+import com.example.sportprog3.presentation.match.MatchScheduleScreen
+import com.example.sportprog3.data.remote.MatchSelection
+import com.example.sportprog3.data.remote.MatchContext
 import com.example.sportprog3.presentation.teams.TeamScreens
 import com.example.sportprog3.presentation.training.TrainingScreens
 import com.example.sportprog3.ui.theme.Forest
@@ -74,7 +77,8 @@ private val prototypeRoutes = listOf(
     PrototypeRoute(18, "Pruebas abiertas", "Comunidad"),
     PrototypeRoute(19, "Moderación", "Administración"),
     PrototypeRoute(20, "Avisos y notificaciones", "Comunidad"),
-    PrototypeRoute(21, "Catálogo de eventos", "Partido")
+    PrototypeRoute(21, "Catálogo de eventos", "Partido"),
+    PrototypeRoute(36, "Programar y seleccionar partido", "Partido")
 )
 
 @Composable
@@ -172,7 +176,7 @@ fun PrototypeApp() {
                                 3 -> selectedId == 3
                                 5 -> selectedId in 4..7
                                 12 -> selectedId in 10..16 ||
-                                        selectedId == 21
+                                        selectedId in listOf(21, 36)
                                 17 -> selectedId in 17..20
                                 else -> selectedId == 6
                             }
@@ -240,6 +244,7 @@ fun PrototypeApp() {
                     screen = selectedId,
                     onNavigate = { selectedId = it },
                     onLoginSuccess = { role, name ->
+                        MatchSelection.select(MatchContext("academia-demo", "los-cedros", "partido-demo-001"))
                         userRole = role
                         userName = name
                         selectedId = 3
@@ -291,6 +296,7 @@ fun PrototypeApp() {
                 17, 18, 19 -> CommunityScreens(selectedId)
 
                 20 -> InboxScreen()
+                36 -> MatchScheduleScreen(onOpenMatch = { selectedId = 12 })
             }
         }
     }
@@ -301,7 +307,7 @@ fun PrototypeApp() {
                 showViews = false
             },
             title = {
-                Text("Explorar las 21 vistas")
+                Text("Explorar funcionalidades")
             },
             text = {
                 LazyColumn {
