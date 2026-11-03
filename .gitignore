@@ -32,3 +32,23 @@ Thumbs.db
 script_base.md
 SportPro_User_Story.md
 google-services.json
+USUARIOS-PRUEBA.md
+nvidia.properties
+
+# Secrets: tokens, API keys and credentials (never commit)
+*.properties
+!gradle.properties
+!gradle/gradle-daemon-jvm.properties
+!gradle/wrapper/gradle-wrapper.properties
+!*.properties.example
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+service-account*.json
+*-adminsdk-*.json
+firebase/firestore-uid-map.json
+payload.json

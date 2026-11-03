@@ -1,5 +1,6 @@
 package com.example.sportprog3.presentation.auth
 
+import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthUserCollisionException
@@ -54,6 +55,8 @@ object AuthRepository {
             auth.signOut()
 
             RegisterResult.Success
+        } catch (_: FirebaseNetworkException) {
+            RegisterResult.Error("Error de red: No hay conexión con Firebase. Revisa el acceso a Internet de tu dispositivo o emulador.")
         } catch (e: FirebaseAuthUserCollisionException) {
             RegisterResult.DuplicateEmail("Ya existe una cuenta registrada con este correo. Puedes iniciar sesión.")
         } catch (e: FirebaseAuthWeakPasswordException) {
@@ -64,6 +67,12 @@ object AuthRepository {
             val msg = e.localizedMessage ?: ""
             if (msg.contains("email-already-in-use", ignoreCase = true) || msg.contains("already in use", ignoreCase = true)) {
                 RegisterResult.DuplicateEmail("Ya existe una cuenta registrada con este correo. Puedes iniciar sesión.")
+            } else if (msg.contains("network error", ignoreCase = true) ||
+                msg.contains("unreachable host", ignoreCase = true) ||
+                msg.contains("RecaptchaAction", ignoreCase = true) ||
+                msg.contains("timeout", ignoreCase = true)
+            ) {
+                RegisterResult.Error("Error de red: No se pudo conectar a Firebase. Verifica la conexión a Internet de tu emulador o dispositivo.")
             } else {
                 RegisterResult.Error("Error al registrar: ${e.localizedMessage ?: "Ocurrió un error inesperado."}")
             }
@@ -90,9 +99,16 @@ object AuthRepository {
             } else {
                 LoginResult.Success(uid = uid, role = "Jugador", name = "Usuario")
             }
+        } catch (_: FirebaseNetworkException) {
+            LoginResult.Error("Error de red: No hay conexión con Firebase. Revisa el acceso a Internet de tu dispositivo o emulador.")
         } catch (e: Exception) {
             val msg = e.localizedMessage ?: ""
             val userFriendlyMsg = when {
+                msg.contains("network error", ignoreCase = true) ||
+                msg.contains("unreachable host", ignoreCase = true) ||
+                msg.contains("RecaptchaAction", ignoreCase = true) ||
+                msg.contains("timeout", ignoreCase = true) ->
+                    "Error de conexión: No se pudo conectar a Firebase. Revisa el acceso a Internet de tu emulador o dispositivo."
                 msg.contains("user-not-found", ignoreCase = true) || msg.contains("no user record", ignoreCase = true) ->
                     "No existe una cuenta registrada con este correo."
                 msg.contains("wrong-password", ignoreCase = true) || msg.contains("invalid-credential", ignoreCase = true) ->

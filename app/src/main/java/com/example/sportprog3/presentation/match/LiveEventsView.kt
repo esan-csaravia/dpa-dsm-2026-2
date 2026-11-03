@@ -33,6 +33,7 @@ import com.example.sportprog3.data.model.MatchEventModel
 import com.example.sportprog3.data.model.MatchLiveModel
 import com.example.sportprog3.data.model.PlayerModel
 import com.example.sportprog3.data.remote.FirebaseMatchManager
+import com.example.sportprog3.data.remote.MatchContext
 import com.example.sportprog3.presentation.components.Body
 import com.example.sportprog3.presentation.components.Eyebrow
 import com.example.sportprog3.presentation.components.EventLine
@@ -46,30 +47,40 @@ import com.example.sportprog3.ui.theme.Rose
 import kotlinx.coroutines.launch
 
 @Composable
-fun LiveEventsView() {
-    val matchId = FirebaseMatchManager.DEMO_MATCH_ID
+fun LiveEventsView(context: MatchContext) {
+    val matchId = context.partidoId
     val scope = rememberCoroutineScope()
     var live by remember { mutableStateOf<MatchLiveModel?>(null) }
     var events by remember { mutableStateOf(emptyList<MatchEventModel>()) }
     var players by remember { mutableStateOf(emptyList<PlayerModel>()) }
     var editing by remember { mutableStateOf<MatchEventModel?>(null) }
     var message by remember { mutableStateOf("") }
+    var history by remember { mutableStateOf(emptyList<MatchLiveModel>()) }
+    var selectedExecution by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(matchId) {
         val stopMatch = FirebaseMatchManager.observeMatch(
             matchId = matchId,
             onLiveChanged = { live = it },
             onEventsChanged = { events = it },
-            onError = { message = "Error de Firebase: $it" }
+            onError = { message = "Error de Firebase: $it" },
+            academiaId = context.academiaId,
+            equipoContextoId = context.equipoId
         )
         val stopPlayers = FirebaseMatchManager.observePlayers(
             matchId = matchId,
             onPlayersChanged = { players = it },
-            onError = { message = "Error de Firebase: $it" }
+            onError = { message = "Error de Firebase: $it" },
+            academiaId = context.academiaId,
+            equipoContextoId = context.equipoId
+        )
+        val stopHistory = FirebaseMatchManager.observeExecutions(
+            context, onChanged = { history = it }, onError = { message = "Error de historial: $it" }
         )
         onDispose {
             stopMatch()
             stopPlayers()
+            stopHistory()
         }
     }
 
@@ -83,11 +94,21 @@ fun LiveEventsView() {
         else -> "Partido"
     }
 
-    val visibleEvents = events.filterNot { it.anulado }.asReversed()
+    val executionId = selectedExecution ?: live?.ejecucionId
+    val archived = executionId != live?.ejecucionId
+    val visibleEvents = events.filter { !it.anulado && it.ejecucionId == executionId }.asReversed()
     Eyebrow("${homeTeamName.uppercase()} VS. ${awayTeamName.uppercase()}")
     SectionTitle("Eventos registrados", "${visibleEvents.size} eventos")
     Notice("Toca «Editar» para asignar jugador, cambiar minuto, equipo u observaciones. Los cambios se ven al instante en todos los dispositivos.")
-    message.takeIf(String::isNotBlank)?.let { Body(it, if (it.startsWith("Error")) Rose else Forest) }
+    SecondaryAction("Ejecucion actual", onClick = { selectedExecution = null; editing = null })
+    history.forEachIndexed { index, execution ->
+        SecondaryAction("Historial ${history.size - index} · ${execution.estado} · ${execution.ejecucionId.take(8)}", onClick = {
+            selectedExecution = execution.ejecucionId
+            editing = null
+        })
+    }
+    if (archived) Notice("Historial conservado: solo lectura. Sus goles no cuentan en la ejecucion actual.")
+    message.takeIf(String::isNotBlank)?.let { Body(it, if (isMatchError(it)) Rose else Forest) }
     MockCard {
         if (visibleEvents.isEmpty()) {
             Body("Aún no hay eventos. Se mostrarán aquí en cuanto se registren desde el partido en vivo.")
@@ -104,7 +125,7 @@ fun LiveEventsView() {
                     if (event.editadoEn > 0) append(" · Editado")
                 }
             )
-            SecondaryAction("Editar", onClick = { editing = event })
+            if (!archived) SecondaryAction("Editar", onClick = { editing = event })
             if (index < visibleEvents.lastIndex) SoftDivider()
         }
     }
@@ -129,10 +150,12 @@ fun LiveEventsView() {
                         equipoId = equipoId,
                         jugadorId = jugador?.jugadorId.orEmpty(),
                         jugadorNombre = jugador?.let { "#${it.numero} ${it.nombre}" }.orEmpty(),
-                        observaciones = observaciones
+                        observaciones = observaciones,
+                        academiaId = context.academiaId,
+                        equipoContextoId = context.equipoId
                     )
                     message = if (result.isSuccess) "Evento actualizado."
-                    else "Error de Firebase: ${result.exceptionOrNull()?.message}"
+                    else matchActionError("editar eventos", result.exceptionOrNull())
                 }
             }
         )

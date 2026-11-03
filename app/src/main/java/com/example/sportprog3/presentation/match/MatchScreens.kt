@@ -12,12 +12,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -36,6 +40,8 @@ import com.example.sportprog3.data.model.MatchEventModel
 import com.example.sportprog3.data.model.MatchLiveModel
 import com.example.sportprog3.data.model.PlayerModel
 import com.example.sportprog3.data.remote.FirebaseMatchManager
+import com.example.sportprog3.data.remote.MatchContext
+import com.example.sportprog3.data.remote.MatchSelection
 import com.example.sportprog3.presentation.components.Badge
 import com.example.sportprog3.presentation.components.Body
 import com.example.sportprog3.presentation.components.Eyebrow
@@ -63,17 +69,20 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun MatchScreens(screen: Int, onNavigate: (Int) -> Unit = {}) {
-    ScreenFrame {
+    val context by MatchSelection.current.collectAsState()
+    key(context) {
+      ScreenFrame {
         when (screen) {
             10 -> CallupView()
             11 -> LineupView()
-            12 -> LiveOperatorView(onNavigate)
-            13 -> EventFormView()
-            14 -> LiveEventsView()
+            12 -> LiveOperatorView(context, onNavigate)
+            13 -> EventFormView(context, onNavigate)
+            14 -> LiveEventsView(context)
             15 -> StatsView()
-            16 -> MatchStoryView()
+            16 -> MatchSummaryView()
             21 -> EventCatalogView()
         }
+      }
     }
 }
 
@@ -151,26 +160,29 @@ private fun FieldPlayer(number: String, name: String) {
 }
 
 @Composable
-private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
-    val matchId = FirebaseMatchManager.DEMO_MATCH_ID
+private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
+    val matchId = context.partidoId
     val scope = rememberCoroutineScope()
     var live by remember { mutableStateOf<MatchLiveModel?>(null) }
     var events by remember { mutableStateOf(emptyList<MatchEventModel>()) }
     var selectedTeamId by remember { mutableStateOf("los-cedros") }
     var minuteInput by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("Conectando con Firebase Realtime Database…") }
+    var message by remember { mutableStateOf("Conectando con Cloud Firestore…") }
     var saving by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(0L) }
+    var confirmRestart by remember { mutableStateOf(false) }
 
     DisposableEffect(matchId) {
         val stopObserving = FirebaseMatchManager.observeMatch(
             matchId = matchId,
-            onLiveChanged = { live = it },
-            onEventsChanged = {
-                events = it
-                message = ""
+            onLiveChanged = {
+                live = it
+                if (it != null && (message == "Conectando con Cloud Firestore…" || message.startsWith("Error de carga:"))) message = ""
             },
-            onError = { message = "Error de Firebase: $it" }
+            onEventsChanged = { events = it },
+            onError = { message = "Error de carga: $it" },
+            academiaId = context.academiaId,
+            equipoContextoId = context.equipoId
         )
         onDispose { stopObserving() }
     }
@@ -179,16 +191,20 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
     val awayTeamId = live?.equipoVisitanteId ?: "deportivo-surco"
     val homeTeamName = live?.equipoLocalNombre ?: "Los Cedros"
     val awayTeamName = live?.equipoVisitanteNombre ?: "Deportivo Surco"
-    val goals = events.filter { it.tipo == "Gol" && !it.anulado }
+    LaunchedEffect(live?.equipoLocalId, live?.equipoVisitanteId) {
+        if (selectedTeamId !in listOf(homeTeamId, awayTeamId)) selectedTeamId = homeTeamId
+    }
+    val currentEvents = events.filter { it.ejecucionId == live?.ejecucionId }
+    val goals = currentEvents.filter { it.tipo == "Gol" && !it.anulado }
     val homeScore = goals.count { it.equipoId == homeTeamId }
     val awayScore = goals.count { it.equipoId == awayTeamId }
-    val isLive = live?.estado == "EN_VIVO"
+    val isLive = live?.estado in listOf("EN_VIVO", "PROGRAMADO", "PRIMER_TIEMPO", "ENTRETIEMPO", "SEGUNDO_TIEMPO")
     val phase = live?.fase ?: "SIN_INICIAR"
     val clockRunning = isLive && (phase == "PRIMER_TIEMPO" || phase == "SEGUNDO_TIEMPO")
 
     LaunchedEffect(clockRunning, live?.relojInicioEn) {
         while (clockRunning) {
-            now = FirebaseMatchManager.serverNow()
+            now = FirebaseMatchManager.deviceNow()
             delay(250)
         }
     }
@@ -203,20 +219,29 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
     val typedMinute = minuteInput.toIntOrNull()
     val minuteValid = minuteInput.isBlank() || (typedMinute != null && typedMinute in 0..130)
     val effectiveMinute = if (minuteInput.isBlank()) clockMinute else typedMinute ?: clockMinute
-    val canRegister = clockRunning && minuteValid
+    val canRegister = clockRunning && minuteValid && !saving
     val canStartHalf = isLive && !saving && (phase == "SIN_INICIAR" || phase == "ENTRETIEMPO")
 
-    fun changePhase(newPhase: String, period: Int, baseMs: Long, type: String, doneMessage: String, finish: Boolean = false) {
+    fun changePhase(
+        newPhase: String, period: Int, baseMs: Long, type: String, doneMessage: String,
+        action: String, finish: Boolean = false, hint: String = ""
+    ) {
         saving = true
         message = "Sincronizando…"
         scope.launch {
-            val result = FirebaseMatchManager.cambiarFase(matchId, newPhase, period, baseMs, type, finish)
+            val result = FirebaseMatchManager.cambiarFase(
+                matchId, newPhase, period, baseMs, type, finish,
+                context.academiaId, context.equipoId, live?.ejecucionId ?: "inicial"
+            )
             saving = false
             message = if (result.isSuccess) doneMessage
-            else "Error de Firebase: ${result.exceptionOrNull()?.message}"
+            else matchActionError(action, result.exceptionOrNull(), hint)
         }
     }
 
+    SecondaryAction("Seleccionar / programar partido", onClick = { onNavigate(36) })
+    Notice(COACH_ONLY_NOTICE)
+    message.takeIf(String::isNotBlank)?.let { Body(it, if (isMatchError(it)) Rose else Muted) }
     MockCard(containerColor = ForestDeep) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Eyebrow(
@@ -239,6 +264,8 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
         Text(clockText, color = Lime, style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black)
         Body(
             when {
+                live == null -> "Cargando partido. Revisa la conexion y los permisos."
+                live?.estado == "CANCELADO" -> "Partido cancelado"
                 !isLive -> "Partido finalizado"
                 phase == "SIN_INICIAR" -> "Pulsa «Iniciar partido» para arrancar el reloj"
                 phase == "PRIMER_TIEMPO" -> "1.er tiempo · reloj en marcha"
@@ -248,7 +275,7 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
             Color.White.copy(alpha = .8f)
         )
     }
-    SectionTitle("Registrar evento rápido", "Firebase RTDB")
+    SectionTitle("Registrar evento rápido", "Cloud Firestore")
     MockCard {
         OutlinedTextField(
             value = minuteInput,
@@ -291,20 +318,24 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
             if (phase == "ENTRETIEMPO") {
                 changePhase(
                     "SEGUNDO_TIEMPO", 2, FirebaseMatchManager.MINUTOS_POR_TIEMPO * 60_000L,
-                    "Inicio 2PT", "Segundo tiempo iniciado."
+                    "Inicio 2PT", "Segundo tiempo iniciado.", "iniciar el segundo tiempo"
                 )
             } else {
-                changePhase("PRIMER_TIEMPO", 1, 0L, "Inicio", "Partido iniciado.")
+                changePhase(
+                    "PRIMER_TIEMPO", 1, 0L, "Inicio", "Partido iniciado.", "iniciar el partido",
+                    hint = "Si ya eres el Entrenador asignado, confirma antes la alineación inicial en US-036."
+                )
             }
         }
     )
+    message.takeIf { isMatchError(it) }?.let { Body(it, Rose) }
     PrimaryAction(
         text = "Finalizar 1PT",
         enabled = isLive && !saving && phase == "PRIMER_TIEMPO",
         onClick = {
             changePhase(
-                "ENTRETIEMPO", 1, elapsedMs(FirebaseMatchManager.serverNow()),
-                "Fin 1PT", "Primer tiempo finalizado."
+                "ENTRETIEMPO", 1, elapsedMs(FirebaseMatchManager.deviceNow()),
+                "Fin 1PT", "Primer tiempo finalizado.", "finalizar el primer tiempo"
             )
         }
     )
@@ -318,19 +349,24 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
                 Button(
                     onClick = {
                         val minute = if (minuteInput.isBlank()) {
-                            (elapsedMs(FirebaseMatchManager.serverNow()) / 60_000).toInt()
+                            (elapsedMs(FirebaseMatchManager.deviceNow()) / 60_000).toInt()
                         } else effectiveMinute
-                        message = "$label agregado; sincronizando…"
+                        saving = true
+                        message = "Registrando $label…"
                         scope.launch {
                             val result = FirebaseMatchManager.registerEvent(
                                 matchId = matchId,
                                 tipo = label,
                                 minuto = minute,
                                 periodo = live?.periodo ?: 1,
-                                equipoId = selectedTeamId
+                                equipoId = selectedTeamId,
+                                academiaId = context.academiaId,
+                                equipoContextoId = context.equipoId,
+                                ejecucionId = live?.ejecucionId ?: "inicial"
                             )
+                            saving = false
                             message = if (result.isSuccess) "$label registrado en el minuto $minute′."
-                            else "Error de Firebase: ${result.exceptionOrNull()?.message}"
+                            else matchActionError("registrar eventos", result.exceptionOrNull())
                         }
                     },
                     enabled = canRegister,
@@ -339,10 +375,9 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
             }
         }
     }
-    message.takeIf(String::isNotBlank)?.let { Body(it, if (it.startsWith("Error")) Rose else Muted) }
     SectionTitle("Cronología en vivo")
     MockCard {
-        val activeEvents = events.filterNot { it.anulado }.asReversed().take(8)
+        val activeEvents = currentEvents.filterNot { it.anulado }.asReversed().take(8)
         if (activeEvents.isEmpty()) {
             Body("Los eventos nuevos aparecerán aquí para todos los dispositivos conectados.")
         } else {
@@ -361,22 +396,52 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
             }
         }
     }
+    SecondaryAction("Registrar evento con detalle", onClick = { onNavigate(13) })
     SecondaryAction("Ver y editar todos los eventos  →", onClick = { onNavigate(14) })
     PrimaryAction(
         text = if (isLive) "Finalizar partido" else "Partido finalizado",
         enabled = isLive && !saving && phase == "SEGUNDO_TIEMPO",
         onClick = {
             changePhase(
-                "FINALIZADO", live?.periodo ?: 2, elapsedMs(FirebaseMatchManager.serverNow()),
-                "Fin del partido", "Partido finalizado.", finish = true
+                "FINALIZADO", live?.periodo ?: 2, elapsedMs(FirebaseMatchManager.deviceNow()),
+                "Fin del partido", "Partido finalizado.", "finalizar el partido", finish = true
             )
         }
     )
+    PrimaryAction(
+        text = "Reiniciar partido",
+        enabled = live != null && live?.estado != "CANCELADO" && !saving,
+        onClick = { confirmRestart = true }
+    )
+    if (confirmRestart) {
+        AlertDialog(
+            onDismissRequest = { confirmRestart = false },
+            title = { Text("Reiniciar partido") },
+            text = { Text("Se conservaran la ejecucion y todos sus eventos en el historial. La nueva ejecucion comenzara con marcador 0-0 y reloj 00:00. No se borran jugadores ni alineacion.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRestart = false
+                    saving = true
+                    scope.launch {
+                        val result = FirebaseMatchManager.reiniciarPartido(
+                            matchId, live?.ejecucionId ?: "inicial", context.academiaId, context.equipoId
+                        )
+                        saving = false
+                        minuteInput = ""
+                        message = if (result.isSuccess) "Partido reiniciado. Pulsa Iniciar partido."
+                        else matchActionError("reiniciar el partido", result.exceptionOrNull())
+                    }
+                }) { Text("Conservar historial y reiniciar") }
+            },
+            dismissButton = { TextButton(onClick = { confirmRestart = false }) { Text("Cancelar") } }
+        )
+    }
+    message.takeIf { isMatchError(it) }?.let { Body(it, Rose) }
 }
 
 @Composable
-private fun EventFormView() {
-    val matchId = FirebaseMatchManager.DEMO_MATCH_ID
+private fun EventFormView(context: MatchContext, onNavigate: (Int) -> Unit) {
+    val matchId = context.partidoId
     val scope = rememberCoroutineScope()
     var live by remember { mutableStateOf<MatchLiveModel?>(null) }
     var players by remember { mutableStateOf(emptyList<PlayerModel>()) }
@@ -385,21 +450,28 @@ private fun EventFormView() {
     var selectedType by remember { mutableStateOf("Gol") }
     var minuteInput by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("Conectando con Firebase Realtime Database…") }
+    var message by remember { mutableStateOf("Conectando con Cloud Firestore…") }
     var saving by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(0L) }
 
     DisposableEffect(matchId) {
         val stopMatch = FirebaseMatchManager.observeMatch(
             matchId = matchId,
-            onLiveChanged = { live = it },
+            onLiveChanged = {
+                live = it
+                if (it != null && (message == "Conectando con Cloud Firestore…" || message.startsWith("Error de carga:"))) message = ""
+            },
             onEventsChanged = {},
-            onError = { message = "Error de Firebase: $it" }
+            onError = { message = "Error de carga: $it" },
+            academiaId = context.academiaId,
+            equipoContextoId = context.equipoId
         )
         val stopPlayers = FirebaseMatchManager.observePlayers(
             matchId = matchId,
             onPlayersChanged = { players = it },
-            onError = { message = "Error de Firebase: $it" }
+            onError = { message = "Error de plantel: $it" },
+            academiaId = context.academiaId,
+            equipoContextoId = context.equipoId
         )
         onDispose {
             stopMatch()
@@ -411,7 +483,7 @@ private fun EventFormView() {
     val awayTeamId = live?.equipoVisitanteId ?: "deportivo-surco"
     val homeTeamName = live?.equipoLocalNombre ?: "Los Cedros"
     val awayTeamName = live?.equipoVisitanteNombre ?: "Deportivo Surco"
-    val isLive = live?.estado == "EN_VIVO"
+    val isLive = live?.estado in listOf("EN_VIVO", "PRIMER_TIEMPO", "ENTRETIEMPO", "SEGUNDO_TIEMPO", "PROGRAMADO")
     val phase = live?.fase ?: "SIN_INICIAR"
     val clockRunning = isLive && (phase == "PRIMER_TIEMPO" || phase == "SEGUNDO_TIEMPO")
     val selectedPlayer = players.firstOrNull {
@@ -419,9 +491,15 @@ private fun EventFormView() {
     }
     val teamPlayers = players.filter { it.equipoId == selectedTeamId }
 
+    LaunchedEffect(live?.equipoLocalId, live?.equipoVisitanteId) {
+        if (selectedTeamId !in listOf(homeTeamId, awayTeamId)) {
+            selectedTeamId = homeTeamId
+            selectedPlayerId = ""
+        }
+    }
     LaunchedEffect(clockRunning, live?.relojInicioEn) {
         while (clockRunning) {
-            now = FirebaseMatchManager.serverNow()
+            now = FirebaseMatchManager.deviceNow()
             delay(250)
         }
     }
@@ -439,6 +517,18 @@ private fun EventFormView() {
         "Tiro de esquina", "Fuera de juego", "Saque lateral", "Saque de meta"
     )
 
+    message.takeIf(String::isNotBlank)?.let { Body(it, if (isMatchError(it)) Rose else Forest) }
+    SecondaryAction("Volver al operador / iniciar partido", onClick = { onNavigate(12) })
+    Notice(COACH_ONLY_NOTICE)
+    if (!clockRunning) {
+        Notice(when {
+            live == null -> "Esperando datos del partido. No se puede registrar sin cargar el partido."
+            live?.estado == "FINALIZADO" -> "Partido finalizado: el Entrenador asignado puede reiniciarlo desde el operador o corregir los eventos existentes."
+            live?.estado == "CANCELADO" -> "El partido esta cancelado."
+            phase == "ENTRETIEMPO" -> "El Entrenador asignado debe iniciar el segundo tiempo desde el operador para registrar eventos."
+            else -> "El Entrenador asignado debe iniciar primero el partido desde el operador (no existe un rol operador)."
+        }, warning = true)
+    }
     MockCard(containerColor = ForestDeep) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Eyebrow(
@@ -536,33 +626,40 @@ private fun EventFormView() {
             onClick = {
                 saving = true
                 message = "Guardando evento…"
+                val type = selectedType
+                val minute = effectiveMinute
+                val executionId = live?.ejecucionId ?: "inicial"
                 scope.launch {
                     val result = FirebaseMatchManager.registerEvent(
                         matchId = matchId,
-                        tipo = selectedType,
-                        minuto = effectiveMinute,
+                        tipo = type,
+                        minuto = minute,
                         periodo = live?.periodo ?: 1,
                         equipoId = selectedTeamId,
                         jugadorId = selectedPlayer?.jugadorId.orEmpty(),
                         jugadorNombre = selectedPlayer?.let { "#${it.numero} ${it.nombre}" }.orEmpty(),
-                        observaciones = notes.trim()
+                        observaciones = notes.trim(),
+                        academiaId = context.academiaId,
+                        equipoContextoId = context.equipoId,
+                        ejecucionId = executionId
                     )
                     saving = false
                     message = if (result.isSuccess) {
                         minuteInput = ""
                         selectedPlayerId = ""
                         notes = ""
-                        "$selectedType registrado en el minuto $effectiveMinute′."
+                        "$type registrado en el minuto $minute′. Compruebalo en Eventos registrados."
                     } else {
-                        "Error de Firebase: ${result.exceptionOrNull()?.message}"
+                        matchActionError("registrar eventos", result.exceptionOrNull())
                     }
                 }
             }
         )
+        message.takeIf(String::isNotBlank)?.let {
+            Body(it, if (isMatchError(it)) Rose else Forest)
+        }
     }
-    message.takeIf(String::isNotBlank)?.let {
-        Body(it, if (it.startsWith("Error")) Rose else Muted)
-    }
+    SecondaryAction("Ver eventos registrados", onClick = { onNavigate(14) })
 }
 
 @Composable
@@ -602,34 +699,6 @@ private fun StatsView() {
         PlayerRow("4", "Diego Torres", "Defensa · 11 partidos", "3 goles")
     }
     Body("Estadísticas calculadas desde los eventos vigentes de cada partido.")
-}
-
-@Composable
-private fun MatchStoryView() {
-    Eyebrow("FECHA 5 · LOS CEDROS 2 — 1 DEPORTIVO SURCO")
-    SectionTitle("Crónica del partido", "Borrador IA")
-    Notice("Fuente: 18 eventos no anulados · 0 datos personales · Generada hoy 17:42")
-    MockCard {
-        Badge("HECHOS DEL PARTIDO")
-        Text(
-            "Los Cedros venció 2-1 a Deportivo Surco. Diego Torres abrió el marcador a los 23′ y Thiago Ramos anotó el gol decisivo a los 76′. El rival descontó en el minuto 68′.",
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Badge("LECTURA DEL ENTRENADOR")
-        Text(
-            "El equipo sostuvo la presión tras recuperar el balón y encontró espacios por las bandas. Esta lectura es una interpretación para revisión del cuerpo técnico.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Muted
-        )
-        SoftDivider()
-        Body("Revisa el texto: cada jugador, minuto y gol debe coincidir con la cronología.")
-    }
-    MockField("Editar crónica antes de publicar", "Texto revisado por el entrenador…")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Badge("Ver eventos fuente")
-        Badge("Registrar evaluación")
-    }
-    PrimaryAction("Aprobar y publicar")
 }
 
 @Composable
