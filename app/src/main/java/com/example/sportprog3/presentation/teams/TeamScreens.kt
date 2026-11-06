@@ -61,11 +61,14 @@ private data class JugadorPlantel(
 // =====================================================
 
 @Composable
-fun TeamScreens(screen: Int) {
+fun TeamScreens(
+    screen: Int,
+    onNavigate: (Int) -> Unit = {}
+) {
     ScreenFrame {
         when (screen) {
             4 -> TeamsView()
-            5 -> RosterView()
+            5 -> RosterView(onNavigate)
             6 -> PlayerProfileView()
             7 -> DuesView()
         }
@@ -124,7 +127,9 @@ private fun TeamsView() {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RosterView() {
+private fun RosterView(
+    onNavigate: (Int) -> Unit
+) {
 
     val firestore = remember {
         FirebaseFirestore.getInstance()
