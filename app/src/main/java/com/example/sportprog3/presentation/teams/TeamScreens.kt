@@ -16,6 +16,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,11 +27,16 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.sportprog3.data.remote.AcademyTeam
+import com.example.sportprog3.data.remote.TeamDirectoryState
+import com.example.sportprog3.data.remote.TeamPlayer
+import com.example.sportprog3.data.remote.TeamRepository
 import com.example.sportprog3.presentation.components.Avatar
 import com.example.sportprog3.presentation.components.Badge
 import com.example.sportprog3.presentation.components.Body
@@ -40,62 +47,24 @@ import com.example.sportprog3.presentation.components.Notice
 import com.example.sportprog3.presentation.components.PlayerRow
 import com.example.sportprog3.presentation.components.ScreenFrame
 import com.example.sportprog3.presentation.components.SectionTitle
+import com.example.sportprog3.presentation.components.SecondaryAction
 import com.example.sportprog3.presentation.components.SoftDivider
 import com.example.sportprog3.presentation.components.toneForState
 import com.example.sportprog3.ui.theme.Forest
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-
-// =====================================================
-// US-005: MODELOS DE EQUIPOS Y JUGADORES
-// =====================================================
-
-private data class EquipoPlantel(
-    val id: String,
-    val nombre: String,
-    val categoria: String,
-    val division: String
-) {
-    val etiqueta: String
-        get() = "$nombre · $categoria · División $division"
-}
-
-private data class JugadorPlantel(
-    val id: String,
-    val dorsal: Int,
-    val nombre: String,
-    val posicion: String,
-    val estado: String
-)
-
-private fun DocumentSnapshot.aEquipoActivo(): EquipoPlantel? {
-    if (!exists() || getString("estado") != "ACTIVO") {
-        return null
-    }
-
-    return EquipoPlantel(
-        id = id,
-        nombre = getString("nombre") ?: id,
-        categoria = getString("categoria") ?: "Sin categoría",
-        division = getString("division") ?: "Sin división"
-    )
-}
-
-// =====================================================
-// NAVEGACIÓN ORIGINAL DEL MÓDULO
-// =====================================================
+import com.example.sportprog3.ui.theme.Mint
+import com.example.sportprog3.ui.theme.Rose
+import kotlinx.coroutines.launch
 
 @Composable
-fun TeamScreens(
-    screen: Int,
-    onNavigate: (Int) -> Unit = {}
-) {
+fun TeamScreens(screen: Int, onNavigate: (Int) -> Unit = {}) {
+    var selectedTeam by remember { mutableStateOf<AcademyTeam?>(null) }
     ScreenFrame {
         when (screen) {
-            4 -> TeamsView()
-            5 -> RosterView(onNavigate)
+            4 -> TeamsView(onOpenTeam = {
+                selectedTeam = it
+                onNavigate(5)
+            })
+            5 -> RosterView(selectedTeam, onBack = { onNavigate(4) })
             6 -> PlayerProfileView()
             7 -> DuesView()
         }
@@ -108,35 +77,120 @@ fun TeamScreens(
 // =====================================================
 
 @Composable
-private fun TeamsView() {
-    Eyebrow("ACADEMIA LOS CEDROS")
-    SectionTitle("Equipos y categorías", "＋ Nuevo")
-    Body("6 categorías activas · temporada 2026")
+private fun TeamsView(onOpenTeam: (AcademyTeam) -> Unit) {
+    var directory by remember { mutableStateOf(TeamDirectoryState()) }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newTeamName by remember { mutableStateOf("") }
+    var newTeamSeason by remember { mutableStateOf("2026") }
+    var createError by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    listOf(
-        "Sub-10" to "22",
-        "Sub-13" to "20",
-        "Sub-15 A" to "18",
-        "Sub-15 B" to "16",
-        "Sub-17" to "19",
-        "Primera" to "24"
-    ).forEach { (name, total) ->
+    DisposableEffect(Unit) {
+        val stopObserving = TeamRepository.observeTeams { directory = it }
+        onDispose { stopObserving() }
+    }
+
+    Eyebrow(directory.academyName.ifBlank { "ACADEMIA" }.uppercase())
+    SectionTitle("Equipos y categorías")
+    Body(
+        when {
+            directory.loading -> "Cargando equipos de tu academia…"
+            directory.academyId.isBlank() -> "Los equipos se consultan únicamente dentro de la academia asociada a tu usuario."
+            else -> "${directory.teams.size} categorías · ${directory.academyName}"
+        }
+    )
+    directory.error?.let { Notice(it, warning = true) }
+
+    if (directory.loading && directory.teams.isEmpty()) {
+        Notice("Conectando con la base de datos…")
+    } else if (directory.teams.isEmpty() && directory.error == null) {
+        Notice("Todavía no hay equipos registrados en esta academia.")
+    }
+
+    directory.teams.forEach { team ->
         MockCard {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(team.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Body(
+                        "${team.playerCount} jugadores" +
+                            team.season.takeIf(String::isNotBlank)?.let { " · Temporada $it" }.orEmpty()
                     )
-                    Body("$total jugadores · Los Cedros FC")
                 }
-                Badge("Ver plantel  →")
+                TextButton(onClick = { onOpenTeam(team) }) {
+                    Text("Ver")
+                }
             }
         }
+    }
+
+    if (directory.canCreate) {
+        com.example.sportprog3.presentation.components.PrimaryAction(
+            text = "＋ Nuevo equipo o categoría",
+            enabled = directory.academyId.isNotBlank(),
+            onClick = {
+                createError = null
+                showCreateDialog = true
+            }
+        )
+    } else if (directory.academyId.isNotBlank()) {
+        Notice("Tu rol puede consultar los equipos, pero no tiene permiso para registrar categorías.")
+    }
+
+    if (showCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!creating) showCreateDialog = false },
+            title = { Text("Nuevo equipo o categoría") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = newTeamName,
+                        onValueChange = { newTeamName = it },
+                        label = { Text("Nombre de la categoría") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newTeamSeason,
+                        onValueChange = { newTeamSeason = it },
+                        label = { Text("Temporada") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    createError?.let { Body(it, Rose) }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !creating && newTeamName.isNotBlank(),
+                    onClick = {
+                        creating = true
+                        createError = null
+                        scope.launch {
+                            val result = TeamRepository.createTeam(newTeamName, newTeamSeason)
+                            creating = false
+                            if (result.isSuccess) {
+                                newTeamName = ""
+                                showCreateDialog = false
+                            } else {
+                                createError = result.exceptionOrNull()?.localizedMessage
+                                    ?: "No se pudo registrar la categoría."
+                            }
+                        }
+                    }
+                ) { Text(if (creating) "Guardando…" else "Crear") }
+            },
+            dismissButton = {
+                TextButton(enabled = !creating, onClick = { showCreateDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
@@ -150,653 +204,54 @@ private fun TeamsView() {
     ExperimentalMaterial3Api::class
 )
 @Composable
-private fun RosterView(
-    onNavigate: (Int) -> Unit
-) {
-    val firestore = remember {
-        FirebaseFirestore.getInstance()
-    }
+private fun RosterView(team: AcademyTeam?, onBack: () -> Unit) {
+    var players by remember(team) { mutableStateOf(emptyList<TeamPlayer>()) }
+    var loading by remember(team) { mutableStateOf(team != null) }
+    var error by remember(team) { mutableStateOf<String?>(null) }
 
-    val academiaId = "academia-demo"
-
-    val uid = FirebaseAuth.getInstance()
-        .currentUser?.uid
-
-    // -------------------------------------------------
-    // ESTADOS DE EQUIPOS
-    // -------------------------------------------------
-
-    var equipos by remember {
-        mutableStateOf<List<EquipoPlantel>>(emptyList())
-    }
-
-    var equipoSeleccionadoId by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    var cargandoEquipos by remember {
-        mutableStateOf(true)
-    }
-
-    var avisoEquipos by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    var selectorAbierto by remember {
-        mutableStateOf(false)
-    }
-
-    // -------------------------------------------------
-    // ESTADOS DEL PLANTEL
-    // -------------------------------------------------
-
-    var jugadores by remember {
-        mutableStateOf<List<JugadorPlantel>>(emptyList())
-    }
-
-    var cargandoJugadores by remember {
-        mutableStateOf(false)
-    }
-
-    var errorJugadores by remember {
-        mutableStateOf<String?>(null)
-    }
-
-    var busqueda by remember {
-        mutableStateOf("")
-    }
-
-    var filtro by remember {
-        mutableStateOf("Todos")
-    }
-
-    var jugadorSeleccionado by remember {
-        mutableStateOf<JugadorPlantel?>(null)
-    }
-
-    val equipoActual = equipos.firstOrNull {
-        it.id == equipoSeleccionadoId
-    }
-
-    // =================================================
-    // 1. CONSULTAR LOS EQUIPOS AUTORIZADOS
-    // =================================================
-
-    DisposableEffect(firestore, academiaId, uid) {
-        var activo = true
-        var version = 0
-
-        var equiposListener: ListenerRegistration? = null
-
-        val academiaRef = firestore
-            .collection("academias")
-            .document(academiaId)
-
-        val equiposRef = academiaRef.collection("equipos")
-
-        fun actualizarEquipos(
-            nuevos: List<EquipoPlantel>,
-            aviso: String?
-        ) {
-            if (!activo) return
-
-            val ordenados = nuevos
-                .distinctBy { it.id }
-                .sortedWith(
-                    compareBy(
-                        { it.nombre },
-                        { it.categoria },
-                        { it.division }
-                    )
-                )
-
-            equipos = ordenados
-            avisoEquipos = aviso
-            cargandoEquipos = false
-
-            // Ya no existe ningún equipo predeterminado.
-            if (ordenados.none {
-                    it.id == equipoSeleccionadoId
-                }
-            ) {
-                equipoSeleccionadoId =
-                    ordenados.firstOrNull()?.id
-            }
-        }
-
-        if (uid == null) {
-            actualizarEquipos(
-                emptyList(),
-                "Inicia sesión para consultar equipos."
-            )
-
-            onDispose {
-                activo = false
-            }
-        } else {
-            // Obtenemos la membresía del usuario autenticado.
-            val miembroListener = academiaRef
-                .collection("miembros")
-                .document(uid)
-                .addSnapshotListener miembro@{ miembro, error ->
-
-                    if (!activo) return@miembro
-
-                    version++
-                    val solicitud = version
-
-                    equiposListener?.remove()
-                    equiposListener = null
-
-                    cargandoEquipos = true
-                    equipos = emptyList()
-                    equipoSeleccionadoId = null
-                    errorJugadores = null
-
-                    if (
-                        error != null ||
-                        miembro == null ||
-                        !miembro.exists()
-                    ) {
-                        actualizarEquipos(
-                            emptyList(),
-                            "No se pudo validar tu membresía en la academia."
-                        )
-                        return@miembro
-                    }
-
-                    val aprobado =
-                        miembro.getBoolean("activo") == true &&
-                                miembro.getString("estadoRol") == "APROBADO"
-
-                    if (!aprobado) {
-                        actualizarEquipos(
-                            emptyList(),
-                            "Tu membresía no está activa y aprobada."
-                        )
-                        return@miembro
-                    }
-
-                    val rol = miembro.getString("rol")
-
-                    if (rol == "Administrador") {
-                        // El administrador consulta los equipos activos.
-                        // Firestore verifica sus permisos reales.
-                        equiposListener = equiposRef
-                            .whereEqualTo("estado", "ACTIVO")
-                            .addSnapshotListener equipos@{
-                                    snapshot, consultaError ->
-
-                                if (
-                                    !activo ||
-                                    solicitud != version
-                                ) {
-                                    return@equipos
-                                }
-
-                                if (consultaError != null) {
-                                    actualizarEquipos(
-                                        emptyList(),
-                                        "No tienes permiso para listar " +
-                                                "los equipos de la academia."
-                                    )
-                                } else if (snapshot != null) {
-                                    actualizarEquipos(
-                                        snapshot.documents.mapNotNull {
-                                            it.aEquipoActivo()
-                                        },
-                                        null
-                                    )
-                                }
-                            }
-                    } else {
-                        // Entrenadores y otros miembros:
-                        // solo IDs registrados en su membresía.
-                        val ids = (
-                                miembro.get("equipoIds") as? List<*>
-                                )
-                            ?.filterIsInstance<String>()
-                            ?.filter { it.isNotBlank() }
-                            ?.distinct()
-                            .orEmpty()
-
-                        if (ids.isEmpty()) {
-                            actualizarEquipos(
-                                emptyList(),
-                                "No tienes equipos asignados."
-                            )
-                        } else {
-                            val encontrados =
-                                mutableListOf<EquipoPlantel>()
-
-                            var pendientes = ids.size
-
-                            ids.forEach { equipoId ->
-                                equiposRef
-                                    .document(equipoId)
-                                    .get()
-                                    .addOnCompleteListener consulta@{ tarea ->
-
-                                        if (
-                                            !activo ||
-                                            solicitud != version
-                                        ) {
-                                            return@consulta
-                                        }
-
-                                        if (tarea.isSuccessful) {
-                                            tarea.result
-                                                ?.aEquipoActivo()
-                                                ?.let {
-                                                    encontrados.add(it)
-                                                }
-                                        }
-
-                                        pendientes--
-
-                                        if (pendientes == 0) {
-                                            actualizarEquipos(
-                                                encontrados,
-                                                if (encontrados.isEmpty()) {
-                                                    "No hay equipos activos " +
-                                                            "disponibles con tus permisos."
-                                                } else {
-                                                    null
-                                                }
-                                            )
-                                        }
-                                    }
-                            }
-                        }
-                    }
-                }
-
-            onDispose {
-                activo = false
-                version++
-                miembroListener.remove()
-                equiposListener?.remove()
-            }
-        }
-    }
-
-    // =================================================
-    // 2. CONSULTAR LOS JUGADORES DEL EQUIPO SELECCIONADO
-    // =================================================
-
-    DisposableEffect(
-        firestore,
-        academiaId,
-        equipoSeleccionadoId
-    ) {
-        val id = equipoSeleccionadoId
-
-        jugadores = emptyList()
-        errorJugadores = null
-        jugadorSeleccionado = null
-        cargandoJugadores = id != null
-
-        if (id == null) {
+    DisposableEffect(team) {
+        if (team == null) {
             onDispose {}
         } else {
-            val registro = firestore
-                .collection("academias")
-                .document(academiaId)
-                .collection("equipos")
-                .document(id)
-                .collection("membresiasEquipo")
-                .addSnapshotListener { snapshot, error ->
-
-                    if (error != null) {
-                        errorJugadores =
-                            error.localizedMessage
-                                ?: "No se puede consultar este plantel."
-
-                        jugadores = emptyList()
-                        cargandoJugadores = false
-
-                    } else if (snapshot != null) {
-                        jugadores = snapshot.documents
-                            .mapNotNull { documento ->
-
-                                if (
-                                    documento.getString("estado")
-                                    != "ACTIVA"
-                                ) {
-                                    null
-                                } else {
-                                    JugadorPlantel(
-                                        id = documento
-                                            .getString("jugadorId")
-                                            ?: documento.id,
-
-                                        dorsal = documento
-                                            .getLong("dorsal")
-                                            ?.toInt() ?: 0,
-
-                                        nombre = documento
-                                            .getString("nombreDeportivo")
-                                            ?: "Sin nombre deportivo",
-
-                                        posicion = documento
-                                            .getString("posicion")
-                                            ?: "Sin posición",
-
-                                        estado = "ACTIVA"
-                                    )
-                                }
-                            }
-                            .sortedWith(
-                                compareBy(
-                                    { it.dorsal },
-                                    { it.nombre }
-                                )
-                            )
-
-                        errorJugadores = null
-                        cargandoJugadores = false
-                    }
+            val stopObserving = TeamRepository.observePlayers(
+                team = team,
+                onChanged = {
+                    players = it
+                    loading = false
+                },
+                onError = {
+                    error = it
+                    loading = false
                 }
-
-            onDispose {
-                registro.remove()
-            }
+            )
+            onDispose { stopObserving() }
         }
     }
 
-    // =================================================
-    // 3. BÚSQUEDA Y FILTROS
-    // =================================================
-
-    val posiciones = listOf(
-        "Todos",
-        "Portero",
-        "Arquero",
-        "Defensa",
-        "Medio",
-        "Mediocampista",
-        "Delantero"
-    )
-
-    val termino = busqueda.trim()
-
-    val jugadoresFiltrados = jugadores.filter { jugador ->
-
-        val coincidePosicion =
-            filtro == "Todos" ||
-                    jugador.posicion.equals(
-                        filtro,
-                        ignoreCase = true
-                    )
-
-        val coincideBusqueda =
-            jugador.nombre.contains(
-                termino,
-                ignoreCase = true
-            ) ||
-                    jugador.dorsal.toString().contains(termino)
-
-        coincidePosicion && coincideBusqueda
+    if (team == null) {
+        Eyebrow("EQUIPO")
+        SectionTitle("Plantel")
+        Notice("Abre una categoría desde Equipos y categorías para consultar su plantel.", warning = true)
+        SecondaryAction("Volver a equipos", onClick = onBack)
+        return
     }
 
-    // =================================================
-    // 4. INTERFAZ US-005
-    // =================================================
-
-    Eyebrow("EQUIPO · TEMPORADA 2026")
-    SectionTitle("Plantel de jugadores")
-
-    TextButton(
-        onClick = {
-            onNavigate(4)
-        }
-    ) {
-        Text("← Volver a equipos")
-    }
-
-    if (uid == null) {
-        Notice(
-            "Debes iniciar sesión para consultar el plantel.",
-            warning = true
-        )
-    }
-
-    // -------------------------------------------------
-    // SELECTOR DE EQUIPOS
-    // -------------------------------------------------
-
-    if (cargandoEquipos) {
-        Body("Cargando equipos autorizados...")
-    } else if (equipos.isEmpty()) {
-        Notice(
-            avisoEquipos
-                ?: "No tienes equipos activos disponibles.",
-            warning = true
-        )
+    Eyebrow("${team.name} · ${team.season.ifBlank { "TEMPORADA" }}".uppercase())
+    SectionTitle("Plantel", "${players.size} jugadores")
+    error?.let { Notice(it, warning = true) }
+    if (loading) {
+        Body("Cargando plantel…")
+    } else if (players.isEmpty() && error == null) {
+        Notice("Esta categoría todavía no tiene jugadores registrados.")
     } else {
-        ExposedDropdownMenuBox(
-            expanded = selectorAbierto,
-            onExpandedChange = {
-                selectorAbierto = !selectorAbierto
-            }
-        ) {
-            OutlinedTextField(
-                value = equipoActual?.etiqueta
-                    ?: "Selecciona un equipo",
-
-                onValueChange = {},
-
-                readOnly = true,
-
-                label = {
-                    Text("Equipo activo")
-                },
-
-                trailingIcon = {
-                    ExposedDropdownMenuDefaults.TrailingIcon(
-                        expanded = selectorAbierto
-                    )
-                },
-
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .menuAnchor()
-            )
-
-            ExposedDropdownMenu(
-                expanded = selectorAbierto,
-                onDismissRequest = {
-                    selectorAbierto = false
-                }
-            ) {
-                equipos.forEach { equipo ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(equipo.etiqueta)
-                        },
-
-                        onClick = {
-                            equipoSeleccionadoId = equipo.id
-                            selectorAbierto = false
-                            busqueda = ""
-                            filtro = "Todos"
-                        }
-                    )
-                }
-            }
-        }
-
-        avisoEquipos?.let { aviso ->
-            Body(aviso)
-        }
-
-        if (equipoActual != null) {
-            Body(
-                "${jugadores.size} jugadores activos · " +
-                        equipoActual.etiqueta
-            )
-        }
-    }
-
-    Notice(
-        "Jugadores obtenidos desde Firebase. " +
-                "El registro requiere autorización."
-    )
-
-    // -------------------------------------------------
-    // BUSCADOR
-    // -------------------------------------------------
-
-    OutlinedTextField(
-        value = busqueda,
-        onValueChange = {
-            busqueda = it
-        },
-
-        label = {
-            Text("Buscar jugador")
-        },
-
-        placeholder = {
-            Text("Nombre o dorsal")
-        },
-
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        shape = RoundedCornerShape(14.dp)
-    )
-
-    // -------------------------------------------------
-    // FILTROS POR POSICIÓN
-    // -------------------------------------------------
-
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        posiciones.forEach { posicion ->
-            FilterChip(
-                selected = filtro == posicion,
-                onClick = {
-                    filtro = posicion
-                },
-                label = {
-                    Text(posicion)
-                }
-            )
-        }
-    }
-
-    // =================================================
-    // 5. RESULTADOS DEL PLANTEL
-    // =================================================
-
-    when {
-        cargandoEquipos || cargandoJugadores -> {
-            Body("Cargando plantel desde Firebase...")
-        }
-
-        equipoSeleccionadoId == null -> {
-            Body("Selecciona un equipo autorizado.")
-        }
-
-        errorJugadores != null -> {
-            Notice(
-                "No se pudo consultar el plantel: $errorJugadores",
-                warning = true
-            )
-        }
-
-        else -> {
-            Body(
-                "${jugadoresFiltrados.size} jugadores encontrados"
-            )
-
-            MockCard {
-                if (jugadoresFiltrados.isEmpty()) {
-                    Body("No hay jugadores para mostrar.")
-                } else {
-                    jugadoresFiltrados.forEachIndexed {
-                            index, jugador ->
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    jugadorSeleccionado = jugador
-                                }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                PlayerRow(
-                                    number = jugador.dorsal.toString(),
-                                    name = jugador.nombre,
-                                    detail = jugador.posicion,
-                                    state = "Ver"
-                                )
-                            }
-                        }
-
-                        if (
-                            index < jugadoresFiltrados.lastIndex
-                        ) {
-                            SoftDivider()
-                        }
-                    }
-                }
+        MockCard {
+            players.forEachIndexed { index, player ->
+                PlayerRow(player.number, player.name, player.detail)
+                if (index < players.lastIndex) SoftDivider()
             }
         }
     }
-
-    // =================================================
-    // 6. INFORMACIÓN DEPORTIVA DEL JUGADOR
-    // =================================================
-
-    jugadorSeleccionado?.let { jugador ->
-        AlertDialog(
-            onDismissRequest = {
-                jugadorSeleccionado = null
-            },
-
-            title = {
-                Text("Información del jugador")
-            },
-
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "Nombre deportivo: ${jugador.nombre}"
-                    )
-                    Text("Dorsal: ${jugador.dorsal}")
-                    Text("Posición: ${jugador.posicion}")
-                    Text(
-                        "Categoría: " +
-                                (equipoActual?.categoria ?: "Sin categoría")
-                    )
-                    Text("Estado: ${jugador.estado}")
-
-                    Body(
-                        "Perfil completo pendiente de " +
-                                "integración con US-006."
-                    )
-                }
-            },
-
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        jugadorSeleccionado = null
-                    }
-                ) {
-                    Text("Cerrar")
-                }
-            }
-        )
-    }
+    SecondaryAction("Volver a equipos", onClick = onBack)
 }
 
 // =====================================================

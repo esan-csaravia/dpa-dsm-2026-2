@@ -1,8 +1,5 @@
 package com.example.sportprog3.data.model
 
-import com.google.firebase.database.IgnoreExtraProperties
-
-@IgnoreExtraProperties
 data class MatchLiveModel(
     val equipoLocalId: String = "los-cedros",
     val equipoLocalNombre: String = "Los Cedros",
@@ -12,10 +9,10 @@ data class MatchLiveModel(
     val periodo: Int = 1,
     val fase: String = "SIN_INICIAR",
     val relojBaseMs: Long = 0L,
-    val relojInicioEn: Long = 0L
+    val relojInicioEn: Long = 0L,
+    val ejecucionId: String = "inicial"
 )
 
-@IgnoreExtraProperties
 data class MatchEventModel(
     val eventoId: String = "",
     val tipo: String = "",
@@ -31,10 +28,10 @@ data class MatchEventModel(
     val creadoEn: Long = 0L,
     val editadoPor: String = "",
     val editadoEn: Long = 0L,
-    val anulado: Boolean = false
+    val anulado: Boolean = false,
+    val ejecucionId: String = "inicial"
 )
 
-@IgnoreExtraProperties
 data class PlayerModel(
     val jugadorId: String = "",
     val nombre: String = "",

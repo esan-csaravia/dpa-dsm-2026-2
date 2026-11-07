@@ -125,8 +125,8 @@ fun PrimaryAction(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(52.dp),
         enabled = enabled,
+        modifier = modifier.fillMaxWidth().height(52.dp),
         shape = RoundedCornerShape(16.dp),
         colors = ButtonDefaults.buttonColors(containerColor = Forest)
     ) {
