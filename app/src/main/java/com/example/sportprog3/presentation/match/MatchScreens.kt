@@ -168,11 +168,22 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
     var selectedTeamId by remember { mutableStateOf("los-cedros") }
     var minuteInput by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("Conectando con Cloud Firestore…") }
+    var permissionMessage by remember { mutableStateOf<String?>(null) }
+    var canOperate by remember { mutableStateOf(false) }
+    var checkingPermission by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(0L) }
     var confirmRestart by remember { mutableStateOf(false) }
 
-    DisposableEffect(matchId) {
+    DisposableEffect(context) {
+        val stopPermission = FirebaseMatchManager.observeOperatorPermission(
+            academiaId = context.academiaId,
+            onChanged = { allowed, error ->
+                canOperate = allowed
+                permissionMessage = error
+                checkingPermission = false
+            }
+        )
         val stopObserving = FirebaseMatchManager.observeMatch(
             matchId = matchId,
             onLiveChanged = {
@@ -184,7 +195,10 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
             academiaId = context.academiaId,
             equipoContextoId = context.equipoId
         )
-        onDispose { stopObserving() }
+        onDispose {
+            stopPermission()
+            stopObserving()
+        }
     }
 
     val homeTeamId = live?.equipoLocalId ?: "los-cedros"
@@ -219,8 +233,8 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
     val typedMinute = minuteInput.toIntOrNull()
     val minuteValid = minuteInput.isBlank() || (typedMinute != null && typedMinute in 0..130)
     val effectiveMinute = if (minuteInput.isBlank()) clockMinute else typedMinute ?: clockMinute
-    val canRegister = clockRunning && minuteValid && !saving
-    val canStartHalf = isLive && !saving && (phase == "SIN_INICIAR" || phase == "ENTRETIEMPO")
+    val canRegister = canOperate && clockRunning && minuteValid && !saving
+    val canStartHalf = canOperate && isLive && !saving && (phase == "SIN_INICIAR" || phase == "ENTRETIEMPO")
 
     fun changePhase(
         newPhase: String, period: Int, baseMs: Long, type: String, doneMessage: String,
@@ -240,7 +254,13 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
     }
 
     SecondaryAction("Seleccionar / programar partido", onClick = { onNavigate(36) })
-    Notice(COACH_ONLY_NOTICE)
+    if (checkingPermission) {
+        Notice("Verificando permisos del usuario…")
+    } else if (!canOperate) {
+        Notice(permissionMessage ?: COACH_ONLY_NOTICE, warning = true)
+    } else {
+        Notice("Permiso de operación confirmado para esta academia.")
+    }
     message.takeIf(String::isNotBlank)?.let { Body(it, if (isMatchError(it)) Rose else Muted) }
     MockCard(containerColor = ForestDeep) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -331,7 +351,7 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
     message.takeIf { isMatchError(it) }?.let { Body(it, Rose) }
     PrimaryAction(
         text = "Finalizar 1PT",
-        enabled = isLive && !saving && phase == "PRIMER_TIEMPO",
+        enabled = canOperate && isLive && !saving && phase == "PRIMER_TIEMPO",
         onClick = {
             changePhase(
                 "ENTRETIEMPO", 1, elapsedMs(FirebaseMatchManager.deviceNow()),
@@ -400,7 +420,7 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
     SecondaryAction("Ver y editar todos los eventos  →", onClick = { onNavigate(14) })
     PrimaryAction(
         text = if (isLive) "Finalizar partido" else "Partido finalizado",
-        enabled = isLive && !saving && phase == "SEGUNDO_TIEMPO",
+        enabled = canOperate && isLive && !saving && phase == "SEGUNDO_TIEMPO",
         onClick = {
             changePhase(
                 "FINALIZADO", live?.periodo ?: 2, elapsedMs(FirebaseMatchManager.deviceNow()),
@@ -410,7 +430,7 @@ private fun LiveOperatorView(context: MatchContext, onNavigate: (Int) -> Unit) {
     )
     PrimaryAction(
         text = "Reiniciar partido",
-        enabled = live != null && live?.estado != "CANCELADO" && !saving,
+        enabled = canOperate && live != null && live?.estado != "CANCELADO" && !saving,
         onClick = { confirmRestart = true }
     )
     if (confirmRestart) {
