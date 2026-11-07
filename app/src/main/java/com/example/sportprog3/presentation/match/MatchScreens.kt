@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.sportprog3.data.model.MatchEventModel
 import com.example.sportprog3.data.model.MatchLiveModel
+import com.example.sportprog3.data.model.PlayerModel
 import com.example.sportprog3.data.remote.FirebaseMatchManager
 import com.example.sportprog3.presentation.components.Badge
 import com.example.sportprog3.presentation.components.Body
@@ -54,6 +58,7 @@ import com.example.sportprog3.ui.theme.Mint
 import com.example.sportprog3.ui.theme.Muted
 import com.example.sportprog3.ui.theme.Pitch
 import com.example.sportprog3.ui.theme.Rose
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -372,21 +377,237 @@ private fun LiveOperatorView(onNavigate: (Int) -> Unit) {
 
 @Composable
 private fun EventFormView() {
-    Eyebrow("LOS CEDROS 2 — 1 DEPORTIVO SURCO")
+    val matchId = FirebaseMatchManager.DEMO_MATCH_ID
+    val eventTypes = listOf(
+        "Gol", "Tarjeta", "Falta", "Penal", "Cambio",
+        "Tiro de esquina", "Fuera de juego", "Saque lateral", "Saque de meta"
+    )
+    val scope = rememberCoroutineScope()
+    var live by remember { mutableStateOf<MatchLiveModel?>(null) }
+    var events by remember { mutableStateOf(emptyList<MatchEventModel>()) }
+    var players by remember { mutableStateOf(emptyList<PlayerModel>()) }
+    var selectedType by remember { mutableStateOf("") }
+    var minuteInput by remember { mutableStateOf("") }
+    var selectedTeamId by remember { mutableStateOf("") }
+    var selectedPlayerId by remember { mutableStateOf("") }
+    var selectedAssistId by remember { mutableStateOf("") }
+    var observations by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+
+    DisposableEffect(matchId) {
+        val stopMatch = FirebaseMatchManager.observeMatch(
+            matchId = matchId,
+            onLiveChanged = { live = it },
+            onEventsChanged = { events = it },
+            onError = { message = "Error de Firebase: $it" }
+        )
+        val stopPlayers = FirebaseMatchManager.observePlayers(
+            matchId = matchId,
+            onPlayersChanged = { players = it },
+            onError = { message = "Error de Firebase: $it" }
+        )
+        onDispose {
+            stopMatch()
+            stopPlayers()
+        }
+    }
+
+    val homeTeamId = live?.equipoLocalId.orEmpty()
+    val awayTeamId = live?.equipoVisitanteId.orEmpty()
+    val homeTeamName = live?.equipoLocalNombre.orEmpty()
+    val awayTeamName = live?.equipoVisitanteNombre.orEmpty()
+    val teamPlayers = players.filter { it.equipoId == selectedTeamId }
+    val selectedPlayer = teamPlayers.firstOrNull { it.jugadorId == selectedPlayerId }
+    val teamAssists = teamPlayers.filter { it.jugadorId != selectedPlayerId }
+    val selectedAssist = teamAssists.firstOrNull { it.jugadorId == selectedAssistId }
+    val minute = minuteInput.toIntOrNull()
+    val minuteValid = minute != null && minute in 0..130
+    val authenticated = FirebaseAuth.getInstance().currentUser?.uid?.isNotBlank() == true
+    val teamsLoaded = homeTeamId.isNotBlank() && awayTeamId.isNotBlank() && homeTeamId != awayTeamId
+    val canSave = !saving && authenticated && live != null && teamsLoaded &&
+        selectedType in eventTypes && selectedTeamId in listOf(homeTeamId, awayTeamId) && minuteValid
+
+    Eyebrow(
+        if (teamsLoaded) "${homeTeamName.uppercase()} VS. ${awayTeamName.uppercase()}"
+        else "PARTIDO NO DISPONIBLE"
+    )
     SectionTitle("Nuevo evento", "PARTIDO EN VIVO")
     MockCard {
+        EventFormDropdown(
+            label = "Tipo de evento",
+            value = selectedType.ifBlank { "Selecciona un tipo" },
+            options = eventTypes.map { it to it },
+            onSelected = { selectedType = it }
+        )
+        OutlinedTextField(
+            value = minuteInput,
+            onValueChange = { minuteInput = it.filter(Char::isDigit).take(3) },
+            label = { Text("Minuto") },
+            supportingText = {
+                Text(if (minuteValid) "Minuto $minute′" else "Ingresa un minuto entre 0 y 130")
+            },
+            isError = minuteInput.isNotBlank() && !minuteValid,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text("Equipo", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Badge("GOL · SELECCIONADO")
-            Badge("Tarjeta")
-            Badge("Cambio")
+            Button(
+                onClick = {
+                    selectedTeamId = homeTeamId
+                    selectedPlayerId = ""
+                    selectedAssistId = ""
+                },
+                enabled = teamsLoaded && selectedTeamId != homeTeamId,
+                modifier = Modifier.weight(1f)
+            ) { Text(homeTeamName.ifBlank { "Equipo local" }) }
+            Button(
+                onClick = {
+                    selectedTeamId = awayTeamId
+                    selectedPlayerId = ""
+                    selectedAssistId = ""
+                },
+                enabled = teamsLoaded && selectedTeamId != awayTeamId,
+                modifier = Modifier.weight(1f)
+            ) { Text(awayTeamName.ifBlank { "Equipo visitante" }) }
         }
-        MockField("Minuto", "63")
-        MockField("Equipo", "Los Cedros")
-        MockField("Jugador", "Diego Torres · #4")
-        MockField("Asistencia (opcional)", "Andrés Flores · #8")
-        MockField("Observaciones", "Remate dentro del área")
+        EventFormDropdown(
+            label = "Jugador (opcional)",
+            value = selectedPlayer?.let { "#${it.numero} ${it.nombre}" } ?: "Sin jugador / Desconocido",
+            options = listOf("Sin jugador / Desconocido" to "") +
+                teamPlayers.map { "#${it.numero} ${it.nombre}" to it.jugadorId },
+            onSelected = {
+                selectedPlayerId = it
+                if (it == selectedAssistId) selectedAssistId = ""
+            },
+            enabled = selectedTeamId.isNotBlank()
+        )
+        if (selectedType == "Gol") {
+            EventFormDropdown(
+                label = "Asistencia (opcional)",
+                value = selectedAssist?.let { "#${it.numero} ${it.nombre}" } ?: "Sin asistencia",
+                options = listOf("Sin asistencia" to "") +
+                    teamAssists.map { "#${it.numero} ${it.nombre}" to it.jugadorId },
+                onSelected = { selectedAssistId = it },
+                enabled = selectedTeamId.isNotBlank()
+            )
+        }
+        OutlinedTextField(
+            value = observations,
+            onValueChange = { observations = it },
+            label = { Text("Observaciones (opcional)") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            maxLines = 4
+        )
         Notice("Si no conoces al jugador, guarda como «Sin jugador» y complétalo después.")
-        PrimaryAction("Guardar evento en cronología")
+        if (!authenticated) {
+            Body("Inicia sesión con una cuenta autorizada para registrar eventos.", Rose)
+        }
+        if (!teamsLoaded) {
+            Body(
+                "No se pudieron cargar los equipos del partido. El guardado estará disponible cuando Firebase proporcione sus datos.",
+                Rose
+            )
+        }
+        message.takeIf(String::isNotBlank)?.let {
+            Body(it, if (it.startsWith("Error")) Rose else Forest)
+        }
+        Button(
+            onClick = {
+                if (!canSave || saving) return@Button
+                saving = true
+                message = "Guardando evento…"
+                scope.launch {
+                    val result = FirebaseMatchManager.registerEvent(
+                        matchId = matchId,
+                        tipo = selectedType,
+                        minuto = minute,
+                        periodo = live?.periodo ?: 1,
+                        equipoId = selectedTeamId,
+                        jugadorId = selectedPlayer?.jugadorId.orEmpty(),
+                        jugadorNombre = selectedPlayer?.let { "#${it.numero} ${it.nombre}" }.orEmpty(),
+                        asistenciaId = selectedAssist?.jugadorId.orEmpty(),
+                        asistenciaNombre = selectedAssist?.let { "#${it.numero} ${it.nombre}" }.orEmpty(),
+                        observaciones = observations.trim()
+                    )
+                    saving = false
+                    if (result.isSuccess) {
+                        message = "Evento registrado en la cronología."
+                        selectedType = ""
+                        minuteInput = ""
+                        selectedTeamId = ""
+                        selectedPlayerId = ""
+                        selectedAssistId = ""
+                        observations = ""
+                    } else {
+                        message = "Error de Firebase: ${result.exceptionOrNull()?.message ?: "No se pudo guardar el evento."}"
+                    }
+                }
+            },
+            enabled = canSave,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (saving) "Guardando…" else "Guardar evento en cronología")
+        }
+    }
+    SectionTitle("Cronología del partido", "${events.count { !it.anulado }} eventos")
+    MockCard {
+        val activeEvents = events.filterNot { it.anulado }.asReversed()
+        if (activeEvents.isEmpty()) {
+            Body("Los eventos del partido aparecerán aquí al sincronizarse con Firebase.")
+        }
+        activeEvents.take(10).forEachIndexed { index, event ->
+            val teamName = when (event.equipoId) {
+                homeTeamId -> homeTeamName
+                awayTeamId -> awayTeamName
+                else -> "Equipo desconocido"
+            }
+            val detail = buildString {
+                append("$teamName · ${event.jugadorNombre.ifBlank { "Sin jugador" }}")
+                if (event.asistenciaNombre.isNotBlank()) append(" · Asistencia: ${event.asistenciaNombre}")
+                if (event.observaciones.isNotBlank()) append(" · ${event.observaciones}")
+            }
+            EventLine("${event.minuto}′ · ${event.periodo}T", event.tipo, detail)
+            if (index < activeEvents.take(10).lastIndex) SoftDivider()
+        }
+    }
+}
+
+@Composable
+private fun EventFormDropdown(
+    label: String,
+    value: String,
+    options: List<Pair<String, String>>,
+    onSelected: (String) -> Unit,
+    enabled: Boolean = true
+) {
+    var expanded by remember(label) { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("$label: $value")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.fillMaxWidth(.9f)
+        ) {
+            options.forEach { (optionLabel, optionValue) ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel) },
+                    onClick = {
+                        onSelected(optionValue)
+                        expanded = false
+                    }
+                )
+            }
+        }
     }
 }
 

@@ -3,6 +3,7 @@ package com.example.sportprog3.data.remote
 import com.example.sportprog3.data.model.MatchEventModel
 import com.example.sportprog3.data.model.MatchLiveModel
 import com.example.sportprog3.data.model.PlayerModel
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -46,9 +47,30 @@ object FirebaseMatchManager {
         tipo: String,
         minuto: Int,
         periodo: Int,
-        equipoId: String
+        equipoId: String,
+        jugadorId: String = "",
+        jugadorNombre: String = "",
+        asistenciaId: String = "",
+        asistenciaNombre: String = "",
+        observaciones: String = ""
     ): Result<Unit> = try {
-        matchRef(matchId).child("eventos").push().setValue(eventoMap(tipo, minuto, periodo, equipoId)).await()
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+            ?.takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("Debes iniciar sesión para registrar un evento.")
+        val eventsRef = matchRef(matchId).child("eventos")
+        val eventId = eventsRef.push().key ?: throw IllegalStateException("No se pudo generar la clave del evento.")
+        val eventData = eventoMap(tipo, minuto, periodo, equipoId).toMutableMap().apply {
+            put("eventoId", eventId)
+            put("jugadorId", jugadorId)
+            put("jugadorNombre", jugadorNombre)
+            put("asistenciaId", asistenciaId)
+            put("asistenciaNombre", asistenciaNombre)
+            put("observaciones", observaciones)
+            put("creadoPor", uid)
+            put("editadoPor", "")
+            put("editadoEn", 0L)
+        }
+        eventsRef.child(eventId).setValue(eventData).await()
         Result.success(Unit)
     } catch (e: Exception) {
         Result.failure(e)
