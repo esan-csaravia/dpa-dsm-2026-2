@@ -282,9 +282,15 @@ fun PrototypeApp() {
                     else -> DashboardScreen(onNavigate = { selectedId = it })
                 }
 
-                4, 5, 6, 7 -> TeamScreens(selectedId)
+                4, 5, 6, 7 -> TeamScreens(
+                    screen = selectedId,
+                    onNavigate = { selectedId = it }
+                )
 
-                8, 9 -> TrainingScreens(selectedId)
+                8, 9 -> TrainingScreens(
+                    screen = selectedId,
+                    onNavigate = { selectedId = it }
+                )
 
                 10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(
                     selectedId,
