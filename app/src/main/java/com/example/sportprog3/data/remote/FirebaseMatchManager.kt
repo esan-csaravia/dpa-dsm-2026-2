@@ -4,6 +4,11 @@ import com.example.sportprog3.data.model.MatchEventModel
 import com.example.sportprog3.data.model.MatchLiveModel
 import com.example.sportprog3.data.model.PlayerModel
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ServerValue
+import com.google.firebase.database.ValueEventListener
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -38,6 +43,33 @@ object FirebaseMatchManager {
 
     private fun currentUid(): String = FirebaseAuth.getInstance().currentUser?.uid
         ?: throw IllegalStateException("Debes iniciar sesion para registrar cambios.")
+
+    fun observeOperatorPermission(
+        academiaId: String,
+        onChanged: (Boolean, String?) -> Unit
+    ): () -> Unit {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) {
+            onChanged(false, "Debes iniciar sesión para operar el partido.")
+            return {}
+        }
+        val listener = database.collection("usuarios").document(uid)
+            .addSnapshotListener { user, error ->
+                when {
+                    error != null -> onChanged(
+                        false,
+                        "No se pudo verificar tu permiso: ${error.localizedMessage ?: "error de Firestore"}"
+                    )
+                    user == null || !user.exists() -> onChanged(false, "No se encontró tu perfil.")
+                    user.getString("rol") !in setOf("Entrenador", "Administrador") ->
+                        onChanged(false, "Solo Entrenador o Administrador puede operar el partido.")
+                    user.getString("academiaId").orEmpty() != academiaId ->
+                        onChanged(false, "Tu usuario no pertenece a la academia de este partido.")
+                    else -> onChanged(true, null)
+                }
+            }
+        return { listener.remove() }
+    }
 
     private fun eventoMap(
         eventoId: String,
@@ -81,14 +113,43 @@ object FirebaseMatchManager {
     ): Result<Unit> = writeResult {
         require(minuto in 0..180) { "El minuto debe estar entre 0 y 180." }
         require(periodo in 1..2) { "Periodo invalido." }
+        require(tipo in MATCH_EVENT_TYPES) { "Tipo de evento no valido." }
+        requireMatchOperator(academiaId)
         val ref = matchRef(matchId, academiaId, equipoContextoId)
         val eventRef = ref.collection("eventos").document()
-        database.batch().update(ref, mapOf(
-            "revisionEventos" to FieldValue.increment(1),
-            "editadoPor" to currentUid(), "editadoEn" to FieldValue.serverTimestamp()
-        )).set(eventRef,
-            eventoMap(eventRef.id, tipo, minuto, periodo, equipoId, jugadorId, jugadorNombre, observaciones, ejecucionId)
-        ).commit().await()
+        val uid = currentUid()
+        database.runTransaction { transaction ->
+            val match = transaction.get(ref)
+            check(match.exists()) { "El partido no existe." }
+            check((match.getString("ejecucionId") ?: "inicial") == ejecucionId) {
+                "El partido fue reiniciado. Recarga antes de continuar."
+            }
+            check(match.getString("fase") in listOf("PRIMER_TIEMPO", "SEGUNDO_TIEMPO")) {
+                "El partido no está en juego."
+            }
+            check(match.getString("estado") !in listOf("FINALIZADO", "CANCELADO")) {
+                "El partido ya no admite eventos."
+            }
+            check((match.getLong("periodo") ?: 1L).toInt() == periodo) {
+                "El periodo del partido cambió. Actualiza la pantalla."
+            }
+            check(equipoId == match.getString("equipoLocalId") ||
+                equipoId == match.getString("equipoVisitanteId")) {
+                "El equipo seleccionado no pertenece a este partido."
+            }
+            val eventData = eventoMap(
+                eventRef.id, tipo, minuto, periodo, equipoId, jugadorId, jugadorNombre,
+                observaciones, ejecucionId
+            ).toMutableMap()
+            eventData["creadoPor"] = uid
+            eventData["editadoPor"] = uid
+            transaction.update(ref, mapOf(
+                "revisionEventos" to FieldValue.increment(1),
+                "editadoPor" to uid,
+                "editadoEn" to FieldValue.serverTimestamp()
+            ))
+            transaction.set(eventRef, eventData)
+        }.await()
     }
 
     suspend fun actualizarEvento(
@@ -102,6 +163,7 @@ object FirebaseMatchManager {
         academiaId: String = DEMO_ACADEMY_ID,
         equipoContextoId: String = DEMO_TEAM_ID
     ): Result<Unit> = writeResult {
+        requireMatchOperator(academiaId)
         val ref = matchRef(matchId, academiaId, equipoContextoId)
         database.batch().update(ref, mapOf(
             "revisionEventos" to FieldValue.increment(1),
@@ -159,6 +221,8 @@ object FirebaseMatchManager {
         equipoContextoId: String = DEMO_TEAM_ID,
         ejecucionId: String = "inicial"
     ): Result<Unit> = writeResult {
+        requireMatchOperator(academiaId)
+        require(tipoEvento in MATCH_EVENT_TYPES) { "Tipo de evento no valido." }
         val ref = matchRef(matchId, academiaId, equipoContextoId)
         val eventRef = ref.collection("eventos").document()
         val updates = mutableMapOf<String, Any?>(
@@ -208,6 +272,7 @@ object FirebaseMatchManager {
         academiaId: String = DEMO_ACADEMY_ID,
         equipoContextoId: String = DEMO_TEAM_ID
     ): Result<Unit> = writeResult {
+        requireMatchOperator(academiaId)
         val ref = matchRef(matchId, academiaId, equipoContextoId)
         val nextId = UUID.randomUUID().toString()
         val uid = currentUid()
@@ -308,6 +373,17 @@ object FirebaseMatchManager {
         getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE)
             ?: throw IllegalStateException("El documento $id no contiene datos.")
 
+    private suspend fun requireMatchOperator(academiaId: String) {
+        val user = database.collection("usuarios").document(currentUid()).get().await()
+        check(user.exists()) { "No se encontró tu perfil." }
+        check(user.getString("rol") in setOf("Entrenador", "Administrador")) {
+            "Solo Entrenador o Administrador puede operar el partido."
+        }
+        check(user.getString("academiaId").orEmpty() == academiaId) {
+            "Tu usuario no pertenece a la academia de este partido."
+        }
+    }
+
     private suspend fun writeResult(block: suspend () -> Unit): Result<Unit> = try {
         block()
         Result.success(Unit)
@@ -316,4 +392,10 @@ object FirebaseMatchManager {
     } catch (e: Exception) {
         Result.failure(e)
     }
+
+    private val MATCH_EVENT_TYPES = setOf(
+        "Gol", "Tarjeta", "Falta", "Penal", "Cambio",
+        "Tiro de esquina", "Fuera de juego", "Saque lateral", "Saque de meta",
+        "Inicio", "Inicio 2PT", "Fin 1PT", "Fin del partido"
+    )
 }

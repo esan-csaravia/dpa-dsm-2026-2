@@ -21,6 +21,8 @@ data class MatchEventModel(
     val equipoId: String = "",
     val jugadorId: String = "",
     val jugadorNombre: String = "",
+    val asistenciaId: String = "",
+    val asistenciaNombre: String = "",
     val observaciones: String = "",
     val creadoPor: String = "",
     val creadoEn: Long = 0L,
