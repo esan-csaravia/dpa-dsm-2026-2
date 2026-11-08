@@ -1,3 +1,4 @@
+
 package com.example.sportprog3.presentation.navigation
 
 import androidx.compose.foundation.background
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+
 import com.example.sportprog3.presentation.auth.AuthRepository
 import com.example.sportprog3.presentation.auth.AuthScreens
 import com.example.sportprog3.presentation.community.CommunityScreens
@@ -83,18 +85,30 @@ private val prototypeRoutes = listOf(
 
 @Composable
 fun PrototypeApp() {
-    var selectedId by remember { mutableIntStateOf(1) }
-    var showViews by remember { mutableStateOf(false) }
-    var userRole by remember { mutableStateOf<String?>(null) }
-    var userName by remember { mutableStateOf<String?>(null) }
 
-    val route = prototypeRoutes.first { it.id == selectedId }
+    var selectedId by remember {
+        mutableIntStateOf(1)
+    }
+
+    var rolUsuario by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var showViews by remember {
+        mutableStateOf(false)
+    }
+
+    val route = prototypeRoutes.first {
+        it.id == selectedId
+    }
+
     val isAuth = selectedId in 1..2
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = Paper,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+
         topBar = {
             Column(
                 modifier = Modifier
@@ -112,6 +126,7 @@ fun PrototypeApp() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
+
                         Text(
                             text = "SPORTPRO G3",
                             color = MaterialTheme.colorScheme.tertiary,
@@ -147,8 +162,10 @@ fun PrototypeApp() {
                 }
             }
         },
+
         bottomBar = {
             if (!isAuth) {
+
                 Surface(
                     shadowElevation = 8.dp,
                     color = Color.White
@@ -165,6 +182,7 @@ fun PrototypeApp() {
                             ),
                         horizontalArrangement = Arrangement.SpaceAround
                     ) {
+
                         listOf(
                             "Inicio" to 3,
                             "Equipo" to 5,
@@ -172,6 +190,7 @@ fun PrototypeApp() {
                             "Comunidad" to 17,
                             "Perfil" to 6
                         ).forEach { (label, target) ->
+
                             val active = when (target) {
                                 3 -> selectedId == 3
                                 5 -> selectedId in 4..7
@@ -182,8 +201,7 @@ fun PrototypeApp() {
                             }
 
                             Column(
-                                horizontalAlignment =
-                                    Alignment.CenterHorizontally,
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .clickable {
                                         selectedId = target
@@ -193,6 +211,7 @@ fun PrototypeApp() {
                                         vertical = 2.dp
                                     )
                             ) {
+
                                 Text(
                                     text = when (label) {
                                         "Inicio" -> "⌂"
@@ -204,11 +223,9 @@ fun PrototypeApp() {
                                     color = if (active) {
                                         Forest
                                     } else {
-                                        MaterialTheme.colorScheme
-                                            .onSurfaceVariant
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                     },
-                                    style = MaterialTheme.typography
-                                        .titleMedium
+                                    style = MaterialTheme.typography.titleMedium
                                 )
 
                                 Text(
@@ -216,11 +233,9 @@ fun PrototypeApp() {
                                     color = if (active) {
                                         Forest
                                     } else {
-                                        MaterialTheme.colorScheme
-                                            .onSurfaceVariant
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                     },
-                                    style = MaterialTheme.typography
-                                        .labelSmall,
+                                    style = MaterialTheme.typography.labelSmall,
                                     fontWeight = if (active) {
                                         FontWeight.Bold
                                     } else {
@@ -234,12 +249,15 @@ fun PrototypeApp() {
             }
         }
     ) { innerPadding ->
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+
             when (selectedId) {
+
                 1, 2 -> AuthScreens(
                     screen = selectedId,
                     onNavigate = { selectedId = it },
@@ -282,14 +300,18 @@ fun PrototypeApp() {
                     else -> DashboardScreen(onNavigate = { selectedId = it })
                 }
 
+                // US-004, US-005, US-006 y US-007
                 4, 5, 6, 7 -> TeamScreens(
                     screen = selectedId,
-                    onNavigate = { selectedId = it }
+                    onNavigate = { destino ->
+                        if (destino in 4..7) {
+                            selectedId = destino
+                        }
+                    }
                 )
 
                 8, 9 -> TrainingScreens(
-                    screen = selectedId,
-                    onNavigate = { selectedId = it }
+                    selectedId
                 )
 
                 10, 11, 12, 13, 14, 15, 16, 21 -> MatchScreens(
@@ -299,7 +321,9 @@ fun PrototypeApp() {
                     }
                 )
 
-                17, 18, 19 -> CommunityScreens(selectedId)
+                17, 18, 19 -> CommunityScreens(
+                    selectedId
+                )
 
                 20 -> InboxScreen()
                 36 -> MatchScheduleScreen(onOpenMatch = { selectedId = 12 })
@@ -308,6 +332,7 @@ fun PrototypeApp() {
     }
 
     if (showViews) {
+
         AlertDialog(
             onDismissRequest = {
                 showViews = false
@@ -316,8 +341,11 @@ fun PrototypeApp() {
                 Text("Explorar funcionalidades")
             },
             text = {
+
                 LazyColumn {
+
                     items(prototypeRoutes) { item ->
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -326,29 +354,26 @@ fun PrototypeApp() {
                                     showViews = false
                                 }
                                 .padding(vertical = 11.dp),
-                            verticalAlignment =
-                                Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+
                             Text(
                                 text = "US-${item.id.toString().padStart(3, '0')}",
                                 color = Forest,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(
-                                    end = 12.dp
-                                )
+                                modifier = Modifier.padding(end = 12.dp)
                             )
 
                             Column {
+
                                 Text(
                                     text = item.title,
-                                    style = MaterialTheme.typography
-                                        .bodyMedium
+                                    style = MaterialTheme.typography.bodyMedium
                                 )
 
                                 Text(
                                     text = item.group,
-                                    style = MaterialTheme.typography
-                                        .labelSmall
+                                    style = MaterialTheme.typography.labelSmall
                                 )
                             }
                         }

@@ -1,3 +1,4 @@
+
 package com.example.sportprog3.presentation.training
 
 import androidx.compose.foundation.text.KeyboardOptions
@@ -23,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -42,6 +44,7 @@ import com.example.sportprog3.presentation.components.SecondaryAction
 import com.example.sportprog3.presentation.components.SectionTitle
 import com.example.sportprog3.presentation.components.SoftDivider
 import com.example.sportprog3.presentation.components.toneForState
+
 import com.example.sportprog3.ui.theme.Forest
 import com.example.sportprog3.ui.theme.Mint
 import com.example.sportprog3.ui.theme.Rose
@@ -49,6 +52,101 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
+import com.google.firebase.Timestamp
+
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+// =====================================================
+// MODELOS DE US-009
+// =====================================================
+
+private data class EquipoAsistencia(
+    val id: String,
+    val nombre: String,
+    val categoria: String,
+    val division: String
+) {
+    val etiqueta: String
+        get() = "$nombre · $categoria · División $division"
+}
+
+private data class SesionAsistencia(
+    val id: String,
+    val fecha: Timestamp?,
+    val estado: String,
+    val objetivo: String,
+    val ubicacion: String,
+    val confirmada: Boolean,
+    val revision: Long,
+    val membresiaIds: List<String>
+)
+
+private data class JugadorAsistencia(
+    val membresiaId: String,
+    val jugadorId: String,
+    val jugadorUid: String?,
+    val dorsal: Int,
+    val nombre: String,
+    val posicion: String
+)
+
+private val ESTADOS_ASISTENCIA = listOf(
+    "Presente",
+    "Tarde",
+    "Ausente"
+)
+
+private fun formatoFecha(fecha: Timestamp?): String {
+    if (fecha == null) return "Fecha no registrada"
+
+    return SimpleDateFormat(
+        "dd/MM/yyyy · HH:mm",
+        Locale("es", "PE")
+    ).format(fecha.toDate())
+}
+
+private fun DocumentSnapshot.convertirEquipo(): EquipoAsistencia? {
+    if (!exists() || getString("estado") != "ACTIVO") {
+        return null
+    }
+
+    return EquipoAsistencia(
+        id = id,
+        nombre = getString("nombre") ?: id,
+        categoria = getString("categoria") ?: "Sin categoría",
+        division = getString("division") ?: "Sin división"
+    )
+}
+
+private fun DocumentSnapshot.convertirSesion(): SesionAsistencia {
+    val ids = (get("membresiaIdsSesion") as? List<*>)
+        ?.filterIsInstance<String>()
+        ?.distinct()
+        .orEmpty()
+
+    return SesionAsistencia(
+        id = id,
+        fecha = getTimestamp("fecha"),
+        estado = getString("estado") ?: "SIN_ESTADO",
+        objetivo = getString("objetivo") ?: "Sin objetivo registrado",
+        ubicacion = getString("ubicacion") ?: "Sin ubicación",
+        confirmada = getBoolean("asistenciaConfirmada") == true,
+        revision = getLong("revision") ?: 0L,
+        membresiaIds = ids
+    )
+}
+
+// =====================================================
+// NAVEGACIÓN ORIGINAL
+// =====================================================
 
 @Composable
 fun TrainingScreens(screen: Int, onNavigate: (Int) -> Unit = {}) {
@@ -61,6 +159,11 @@ fun TrainingScreens(screen: Int, onNavigate: (Int) -> Unit = {}) {
         }
     }
 }
+
+// =====================================================
+// US-008: PLAN DE ENTRENAMIENTO
+// SE CONSERVA LA PANTALLA DEL COMPAÑERO
+// =====================================================
 
 @Composable
 private fun TrainingPlan(
@@ -455,6 +558,11 @@ private fun TrainingPlan(
     }
 }
 
+// =====================================================
+// US-009: REGISTRAR ASISTENCIA AL ENTRENAMIENTO
+// =====================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChoiceDialog(
     title: String,

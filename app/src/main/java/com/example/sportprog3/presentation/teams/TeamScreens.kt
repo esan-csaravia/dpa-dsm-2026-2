@@ -1,9 +1,21 @@
+
 package com.example.sportprog3.presentation.teams
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.sportprog3.data.remote.AcademyTeam
@@ -29,11 +42,9 @@ import com.example.sportprog3.presentation.components.Badge
 import com.example.sportprog3.presentation.components.Body
 import com.example.sportprog3.presentation.components.Eyebrow
 import com.example.sportprog3.presentation.components.MockCard
-import com.example.sportprog3.presentation.components.MockField
 import com.example.sportprog3.presentation.components.Metric
 import com.example.sportprog3.presentation.components.Notice
 import com.example.sportprog3.presentation.components.PlayerRow
-import com.example.sportprog3.presentation.components.PrimaryAction
 import com.example.sportprog3.presentation.components.ScreenFrame
 import com.example.sportprog3.presentation.components.SectionTitle
 import com.example.sportprog3.presentation.components.SecondaryAction
@@ -59,6 +70,11 @@ fun TeamScreens(screen: Int, onNavigate: (Int) -> Unit = {}) {
         }
     }
 }
+
+// =====================================================
+// US-004: EQUIPOS Y CATEGORÍAS
+// PANTALLA DEL COMPAÑERO: SIN CAMBIOS FUNCIONALES
+// =====================================================
 
 @Composable
 private fun TeamsView(onOpenTeam: (AcademyTeam) -> Unit) {
@@ -178,6 +194,15 @@ private fun TeamsView(onOpenTeam: (AcademyTeam) -> Unit) {
     }
 }
 
+// =====================================================
+// US-005: CONSULTAR PLANTEL DE JUGADORES
+// EQUIPOS AUTORIZADOS DESDE FIRESTORE
+// =====================================================
+
+@OptIn(
+    ExperimentalLayoutApi::class,
+    ExperimentalMaterial3Api::class
+)
 @Composable
 private fun RosterView(team: AcademyTeam?, onBack: () -> Unit) {
     var players by remember(team) { mutableStateOf(emptyList<TeamPlayer>()) }
@@ -229,64 +254,182 @@ private fun RosterView(team: AcademyTeam?, onBack: () -> Unit) {
     SecondaryAction("Volver a equipos", onClick = onBack)
 }
 
+// =====================================================
+// US-006: PERFIL DEL JUGADOR
+// PANTALLA ORIGINAL DEL COMPAÑERO
+// =====================================================
+
 @Composable
 private fun PlayerProfileView() {
+
     MockCard(containerColor = Forest) {
-        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Avatar("DT", background = androidx.compose.ui.graphics.Color.White)
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+
+            Avatar(
+                "DT",
+                background = Color.White
+            )
+
             Column {
-                Eyebrow("SUB-15 A · LOS CEDROS", androidx.compose.ui.graphics.Color.White.copy(alpha = .75f))
-                Text("Diego Torres", color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Body("Defensa central  ·  #4", androidx.compose.ui.graphics.Color.White.copy(alpha = .8f))
+                Eyebrow(
+                    "SUB-15 A · LOS CEDROS",
+                    Color.White.copy(alpha = .75f)
+                )
+
+                Text(
+                    "Diego Torres",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Body(
+                    "Defensa central  ·  #4",
+                    Color.White.copy(alpha = .8f)
+                )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(26.dp)) {
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(26.dp)
+        ) {
             Metric("92%", "asistencia")
             Metric("5", "partidos")
             Metric("2", "goles")
         }
     }
+
     SectionTitle("Ficha deportiva", "Editar")
+
     MockCard {
-        PlayerRow("↗", "Datos físicos", "1.68 m · 58 kg · Pie derecho")
+        PlayerRow(
+            "↗",
+            "Datos físicos",
+            "1.68 m · 58 kg · Pie derecho"
+        )
+
         SoftDivider()
-        PlayerRow("◎", "Fecha de nacimiento", "12 de febrero de 2011")
+
+        PlayerRow(
+            "◎",
+            "Fecha de nacimiento",
+            "12 de febrero de 2011"
+        )
+
         SoftDivider()
-        PlayerRow("☎", "Contacto", "Visible solo para el equipo autorizado")
+
+        PlayerRow(
+            "☎",
+            "Contacto",
+            "Visible solo para el equipo autorizado"
+        )
+
         SoftDivider()
-        PlayerRow("SOS", "Emergencia", "María Torres · Madre · ••• ••• 482")
+
+        PlayerRow(
+            "SOS",
+            "Emergencia",
+            "María Torres · Madre · ••• ••• 482"
+        )
     }
-    Notice("La información sensible solo es visible para el entrenador, el jugador y su apoderado.")
+
+    Notice(
+        "La información sensible solo es visible para " +
+                "el entrenador, el jugador y su apoderado."
+    )
+
     SectionTitle("Participación reciente")
+
     MockCard {
-        PlayerRow("12", "Entrenamiento", "Presente · 15 sep", "Presente")
-        PlayerRow("09", "Entrenamiento", "Presente · 12 sep", "Presente")
-        PlayerRow("05", "Fecha 5 vs. San Borja", "1 gol · 1 asistencia")
+        PlayerRow(
+            "12",
+            "Entrenamiento",
+            "Presente · 15 sep",
+            "Presente"
+        )
+
+        PlayerRow(
+            "09",
+            "Entrenamiento",
+            "Presente · 12 sep",
+            "Presente"
+        )
+
+        PlayerRow(
+            "05",
+            "Fecha 5 vs. San Borja",
+            "1 gol · 1 asistencia"
+        )
     }
 }
 
+// =====================================================
+// US-007: MENSUALIDADES SIMULADAS
+// PANTALLA ORIGINAL DEL COMPAÑERO
+// =====================================================
+
 @Composable
 private fun DuesView() {
+
     Eyebrow("ADMINISTRACIÓN · SEPTIEMBRE 2026")
     SectionTitle("Mensualidades", "Sub-15 A")
-    Notice("Vista demostrativa: no procesa pagos ni guarda datos de tarjetas.", warning = true)
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        MockCard(modifier = Modifier.weight(1f)) { Metric("12", "al día") }
-        MockCard(modifier = Modifier.weight(1f)) { Metric("3", "pendientes") }
-        MockCard(modifier = Modifier.weight(1f)) { Metric("3", "vencidas") }
-    }
-    MockCard {
-        listOf(
-            Triple("4", "Diego Torres", "Al día · 05 sep"),
-            Triple("8", "Andrés Flores", "Pendiente · vence 20 sep"),
-            Triple("9", "Thiago Ramos", "Vencida · 10 sep"),
-            Triple("10", "Nicolás Paredes", "Al día · 03 sep"),
-            Triple("11", "Gabriel Soto", "Pendiente · vence 20 sep"),
-            Triple("15", "Bruno León", "Vencida · 10 sep")
-        ).forEach { (num, name, detail) ->
-            val status = detail.substringBefore(" ·")
-            PlayerRow(num, name, detail, status, toneForState(status))
+
+    Notice(
+        "Vista demostrativa: no procesa pagos ni guarda datos de tarjetas.",
+        warning = true
+    )
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        MockCard(modifier = Modifier.weight(1f)) {
+            Metric("12", "al día")
+        }
+
+        MockCard(modifier = Modifier.weight(1f)) {
+            Metric("3", "pendientes")
+        }
+
+        MockCard(modifier = Modifier.weight(1f)) {
+            Metric("3", "vencidas")
         }
     }
+
+    MockCard {
+        listOf(
+            Triple(
+                "4", "Diego Torres", "Al día · 05 sep"
+            ),
+            Triple(
+                "8", "Andrés Flores", "Pendiente · vence 20 sep"
+            ),
+            Triple(
+                "9", "Thiago Ramos", "Vencida · 10 sep"
+            ),
+            Triple(
+                "10", "Nicolás Paredes", "Al día · 03 sep"
+            ),
+            Triple(
+                "11", "Gabriel Soto", "Pendiente · vence 20 sep"
+            ),
+            Triple(
+                "15", "Bruno León", "Vencida · 10 sep"
+            )
+        ).forEach { (num, name, detail) ->
+            val status = detail.substringBefore(" ·")
+
+            PlayerRow(
+                num,
+                name,
+                detail,
+                status,
+                toneForState(status)
+            )
+        }
+    }
+
     Body("Los estados son registros administrativos simulados.")
 }
